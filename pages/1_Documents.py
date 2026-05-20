@@ -10,74 +10,90 @@ import config
 from src.document_processor import process_uploaded_file
 from src.vector_store import LegalVectorStore
 from src.ui_utils import render_sidebar
+from src.styles import page_header, tip, doc_badge
 
 st.set_page_config(page_title="Documents — NZ Law Assistant", page_icon="📂", layout="wide")
-
 current_subject, project_id = render_sidebar()
-
-st.title("📂 Document Library")
-st.markdown(
-    "Upload your course materials. All files are stored locally and used as sources for analysis. "
-    "Documents are shared across all your projects."
-)
 
 if "vector_store" not in st.session_state:
     with st.spinner("Loading document library..."):
         st.session_state["vector_store"] = LegalVectorStore()
 vs: LegalVectorStore = st.session_state["vector_store"]
 
+page_header("📂", "Document Library",
+            "Upload your course materials — they are the source of truth for all analysis, essays, and exam practice.")
+
+# ── Stats row ────────────────────────────────────────────────────────────────
+all_docs = vs.list_documents()
+counts = {}
+for d in all_docs:
+    counts[d["doc_type"]] = counts.get(d["doc_type"], 0) + 1
+
+if all_docs:
+    cols = st.columns(len(counts) if counts else 1)
+    for i, (dtype, cnt) in enumerate(counts.items()):
+        label = config.DOC_TYPE_LABELS.get(dtype, dtype)
+        with cols[i]:
+            st.metric(label, cnt)
+    st.divider()
+
 # ── Upload ────────────────────────────────────────────────────────────────────
-st.subheader("Upload Documents")
+st.markdown("### Upload New Documents")
+tip("Upload PDFs, PowerPoints, or text files. The system will auto-detect the document type, but you can override it.")
 
 uploaded_files = st.file_uploader(
-    "Choose files",
+    "Drop files here or click to browse",
     type=["pdf", "pptx", "ppt", "txt"],
     accept_multiple_files=True,
-    help="Accepted: PDF, PPTX, TXT",
+    label_visibility="collapsed",
 )
 
 doc_type_display = {v: k for k, v in config.DOC_TYPE_LABELS.items()}
 
 if uploaded_files:
     with st.form("upload_form"):
+        st.markdown("**Configure each document:**")
         titles: dict[str, str] = {}
         types: dict[str, str] = {}
 
         for uf in uploaded_files:
-            st.markdown(f"**{uf.name}**")
-            c1, c2 = st.columns([2, 1])
+            c1, c2, c3 = st.columns([3, 2, 1])
             with c1:
                 titles[uf.name] = st.text_input(
-                    "Title", value=uf.name.rsplit(".", 1)[0], key=f"title_{uf.name}"
+                    "Title", value=uf.name.rsplit(".", 1)[0],
+                    key=f"title_{uf.name}", label_visibility="collapsed",
+                    placeholder="Document title",
                 )
             with c2:
                 chosen_label = st.selectbox(
-                    "Type",
-                    options=list(config.DOC_TYPE_LABELS.values()),
-                    key=f"type_{uf.name}",
+                    "Type", options=list(config.DOC_TYPE_LABELS.values()),
+                    key=f"type_{uf.name}", label_visibility="collapsed",
                 )
                 types[uf.name] = doc_type_display[chosen_label]
+            with c3:
+                st.markdown(
+                    f"<p style='padding-top:.4rem; font-size:.78rem; color:#64748B;'>{uf.name}</p>",
+                    unsafe_allow_html=True,
+                )
 
-        submitted = st.form_submit_button("Process & Upload", type="primary")
+        submitted = st.form_submit_button("⬆️ Process & Upload", type="primary", use_container_width=True)
 
     if submitted:
         for uf in uploaded_files:
-            title = titles[uf.name]
-            doc_type = types[uf.name]
-            with st.status(f"Processing {uf.name}...", expanded=True) as status:
+            with st.status(f"Processing **{titles[uf.name]}**...", expanded=True) as status:
                 try:
                     st.write("Extracting text...")
                     doc = process_uploaded_file(
                         file_bytes=uf.read(),
                         original_filename=uf.name,
-                        title=title,
-                        doc_type=doc_type,
+                        title=titles[uf.name],
+                        doc_type=types[uf.name],
                     )
-                    st.write(f"Extracted {len(doc.full_text):,} characters, {len(doc.chunks)} chunks.")
-                    st.write("Embedding and storing...")
-                    collection_name = config.COLLECTIONS.get(doc_type, config.COLLECTIONS["other"])
+                    st.write(f"✓ Extracted {len(doc.full_text):,} characters across {len(doc.chunks)} chunks")
+                    st.write("Embedding and indexing...")
+                    collection_name = config.COLLECTIONS.get(types[uf.name], config.COLLECTIONS["other"])
                     vs.add_chunks(doc.chunks, collection_name)
-                    status.update(label=f"✅ {title} uploaded successfully", state="complete")
+                    status.update(label=f"✅ **{titles[uf.name]}** ready", state="complete")
                 except Exception as e:
                     status.update(label=f"❌ Failed: {e}", state="error")
         st.rerun()
@@ -85,29 +101,44 @@ if uploaded_files:
 st.divider()
 
 # ── Library ───────────────────────────────────────────────────────────────────
-st.subheader("Your Library")
-all_docs = vs.list_documents()
+st.markdown("### Your Library")
 
 if not all_docs:
-    st.info("No documents uploaded yet.")
+    st.markdown(
+        """<div style="background:white; border:2px dashed #DDE3EE; border-radius:12px;
+                      padding:3rem; text-align:center; margin-top:.5rem;">
+            <p style="font-size:2.5rem; margin:0;">📭</p>
+            <p style="color:#64748B; margin:.75rem 0 .25rem; font-weight:500;">No documents yet</p>
+            <p style="color:#94A3B8; font-size:.85rem; margin:0;">
+                Upload lecture slides, case PDFs, articles, past papers, and workshop questions above.
+            </p>
+        </div>""",
+        unsafe_allow_html=True,
+    )
 else:
+    # Filter bar
     type_filter = st.selectbox(
         "Filter by type",
         options=["All"] + list(config.DOC_TYPE_LABELS.values()),
-        index=0,
+        label_visibility="collapsed",
     )
+    filtered = all_docs if type_filter == "All" else [
+        d for d in all_docs if config.DOC_TYPE_LABELS.get(d["doc_type"], "") == type_filter
+    ]
 
-    filtered = all_docs
-    if type_filter != "All":
-        key = doc_type_display.get(type_filter, "")
-        filtered = [d for d in all_docs if d["doc_type"] == key]
-
+    # Table-style list
     for doc in filtered:
-        label = config.DOC_TYPE_LABELS.get(doc["doc_type"], doc["doc_type"])
-        with st.expander(f"**{doc['title']}** — {label}"):
-            st.markdown(f"- **File:** {doc['source_filename']}")
-            st.markdown(f"- **Type:** {label}")
-            if st.button("🗑️ Delete", key=f"del_{doc['doc_id']}"):
-                vs.delete_document(doc["doc_id"], doc["collection"])
-                st.success(f"Deleted '{doc['title']}'")
-                st.rerun()
+        badge_html = doc_badge(doc["doc_type"])
+        with st.container(border=True):
+            col_info, col_del = st.columns([9, 1])
+            with col_info:
+                st.markdown(
+                    f"**{doc['title']}** &nbsp;&nbsp; {badge_html}"
+                    f"<br><span style='color:#94A3B8; font-size:.78rem;'>{doc['source_filename']}</span>",
+                    unsafe_allow_html=True,
+                )
+            with col_del:
+                if st.button("🗑", key=f"del_{doc['doc_id']}", help="Delete document"):
+                    vs.delete_document(doc["doc_id"], doc["collection"])
+                    st.success(f"Deleted '{doc['title']}'")
+                    st.rerun()
