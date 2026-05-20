@@ -14,7 +14,8 @@ class RAGPipeline:
         if mode == "exam":
             return [config.COLLECTIONS["case_law"], config.COLLECTIONS["lecture"],
                     config.COLLECTIONS["statute"], config.COLLECTIONS["article"],
-                    config.COLLECTIONS["past_paper"], config.COLLECTIONS["instruction"]]
+                    config.COLLECTIONS["past_paper"], config.COLLECTIONS["workshop_question"],
+                    config.COLLECTIONS["instruction"]]
         if mode == "case":
             return [config.COLLECTIONS["case_law"], config.COLLECTIONS["article"]]
         if mode == "notes":
@@ -69,6 +70,7 @@ class RAGPipeline:
         doc_ids: Optional[list[str]] = None,
         history: Optional[list[dict]] = None,
         current_subject: str = "",
+        rubric: str = "",
         n_results: int = config.TOP_K_RETRIEVAL,
         chunks: Optional[list[RetrievedChunk]] = None,
     ) -> Generator[str, None, UsageStats]:
@@ -80,6 +82,7 @@ class RAGPipeline:
             history=history or [],
             chunks=chunks,
             current_subject=current_subject,
+            rubric=rubric,
         )
 
     def complete(
@@ -90,6 +93,7 @@ class RAGPipeline:
         doc_ids: Optional[list[str]] = None,
         history: Optional[list[dict]] = None,
         current_subject: str = "",
+        rubric: str = "",
         n_results: int = config.TOP_K_RETRIEVAL,
         chunks: Optional[list[RetrievedChunk]] = None,
     ) -> tuple[str, UsageStats]:
@@ -101,4 +105,5 @@ class RAGPipeline:
             history=history or [],
             chunks=chunks,
             current_subject=current_subject,
+            rubric=rubric,
         )

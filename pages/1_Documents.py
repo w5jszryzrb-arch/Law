@@ -4,35 +4,29 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import streamlit as st
 from dotenv import load_dotenv
-
 load_dotenv()
 
 import config
 from src.document_processor import process_uploaded_file
 from src.vector_store import LegalVectorStore
+from src.ui_utils import render_sidebar
 
 st.set_page_config(page_title="Documents — NZ Law Assistant", page_icon="📂", layout="wide")
 
-with st.sidebar:
-    st.markdown("## ⚖️ NZ Law Assistant")
-    st.divider()
-    current_subject = st.text_input(
-        "Current subject / topic",
-        value=st.session_state.get("current_subject", ""),
-        placeholder="e.g. Contract Law — Offer and Acceptance",
-    )
-    st.session_state["current_subject"] = current_subject
+current_subject, project_id = render_sidebar()
 
 st.title("📂 Document Library")
-st.markdown("Upload your course materials. All files are stored locally and used as sources for analysis.")
+st.markdown(
+    "Upload your course materials. All files are stored locally and used as sources for analysis. "
+    "Documents are shared across all your projects."
+)
 
-# Initialise vector store
 if "vector_store" not in st.session_state:
     with st.spinner("Loading document library..."):
         st.session_state["vector_store"] = LegalVectorStore()
 vs: LegalVectorStore = st.session_state["vector_store"]
 
-# Upload section
+# ── Upload ────────────────────────────────────────────────────────────────────
 st.subheader("Upload Documents")
 
 uploaded_files = st.file_uploader(
@@ -42,7 +36,6 @@ uploaded_files = st.file_uploader(
     help="Accepted: PDF, PPTX, TXT",
 )
 
-doc_type_options = list(config.DOC_TYPE_LABELS.items())
 doc_type_display = {v: k for k, v in config.DOC_TYPE_LABELS.items()}
 
 if uploaded_files:
@@ -87,20 +80,17 @@ if uploaded_files:
                     status.update(label=f"✅ {title} uploaded successfully", state="complete")
                 except Exception as e:
                     status.update(label=f"❌ Failed: {e}", state="error")
-
         st.rerun()
 
 st.divider()
 
-# Library view
+# ── Library ───────────────────────────────────────────────────────────────────
 st.subheader("Your Library")
-
 all_docs = vs.list_documents()
 
 if not all_docs:
     st.info("No documents uploaded yet.")
 else:
-    # Filter by type
     type_filter = st.selectbox(
         "Filter by type",
         options=["All"] + list(config.DOC_TYPE_LABELS.values()),
@@ -117,7 +107,6 @@ else:
         with st.expander(f"**{doc['title']}** — {label}"):
             st.markdown(f"- **File:** {doc['source_filename']}")
             st.markdown(f"- **Type:** {label}")
-            st.markdown(f"- **Collection:** {doc['collection']}")
             if st.button("🗑️ Delete", key=f"del_{doc['doc_id']}"):
                 vs.delete_document(doc["doc_id"], doc["collection"])
                 st.success(f"Deleted '{doc['title']}'")

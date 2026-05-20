@@ -42,10 +42,16 @@ def _build_messages(
     chunks: list[RetrievedChunk],
     user_query: str,
     current_subject: str = "",
+    rubric: str = "",
 ) -> list[dict]:
     messages = list(history)
 
-    subject_prefix = f"[Subject: {current_subject}]\n\n" if current_subject.strip() else ""
+    prefix_parts: list[str] = []
+    if current_subject.strip():
+        prefix_parts.append(f"[Subject: {current_subject}]")
+    if rubric.strip():
+        prefix_parts.append(f"[Assessment Rubric:\n{rubric.strip()}\n]")
+    prefix = "\n\n".join(prefix_parts) + "\n\n" if prefix_parts else ""
 
     if chunks:
         context_text = _format_chunks(chunks)
@@ -57,14 +63,14 @@ def _build_messages(
             },
             {
                 "type": "text",
-                "text": f"{subject_prefix}{user_query}",
+                "text": f"{prefix}{user_query}",
             },
         ]
     else:
         user_content = [
             {
                 "type": "text",
-                "text": f"{subject_prefix}{user_query}",
+                "text": f"{prefix}{user_query}",
             }
         ]
 
@@ -96,6 +102,7 @@ class ClaudeClient:
         history: Optional[list[dict]] = None,
         chunks: Optional[list[RetrievedChunk]] = None,
         current_subject: str = "",
+        rubric: str = "",
         max_tokens: int = config.MAX_TOKENS,
     ) -> Generator[str, None, UsageStats]:
         messages = _build_messages(
@@ -103,6 +110,7 @@ class ClaudeClient:
             chunks or [],
             user_query,
             current_subject,
+            rubric,
         )
         stats = UsageStats()
 
@@ -130,6 +138,7 @@ class ClaudeClient:
         history: Optional[list[dict]] = None,
         chunks: Optional[list[RetrievedChunk]] = None,
         current_subject: str = "",
+        rubric: str = "",
         max_tokens: int = config.MAX_TOKENS,
     ) -> tuple[str, UsageStats]:
         messages = _build_messages(
@@ -137,6 +146,7 @@ class ClaudeClient:
             chunks or [],
             user_query,
             current_subject,
+            rubric,
         )
         resp = self._client.messages.create(
             model=config.MODEL,

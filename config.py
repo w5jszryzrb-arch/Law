@@ -23,6 +23,7 @@ COLLECTIONS = {
     "article": "article",
     "instruction": "instruction",
     "past_paper": "past_paper",
+    "workshop_question": "workshop_question",
     "statute": "statute",
     "other": "other",
 }
@@ -33,6 +34,7 @@ DOC_TYPE_LABELS = {
     "article": "Legal Scholar / Article",
     "instruction": "Assignment / Instructions",
     "past_paper": "Past Exam Paper",
+    "workshop_question": "Workshop / Tutorial Questions",
     "statute": "Statute / Legislation",
     "other": "Other",
 }
