@@ -1,0 +1,306 @@
+{% extends "base.html" %}
+{% block title %}Essay Assistant · NZ Law Assistant{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="icon">✍️</div>
+    <div>
+        <h1>Essay Assistant</h1>
+        <p class="subtitle">NZ Law Style Guide (3rd ed) · IRAC structure · formal academic prose</p>
+    </div>
+</div>
+
+{% if project %}
+<details class="expander" {% if rubric %}open{% endif %}>
+    <summary>📋 Assessment rubric {% if rubric %}<span class="badge badge-statute">Active</span>{% else %}(optional){% endif %}</summary>
+    <div class="body">
+        {% if rubric %}<div class="rubric-active-box">A rubric is saved for this project — all drafts and critiques align with it.</div>{% endif %}
+        <textarea id="rubric-input" rows="6" placeholder="e.g.
+A+ (90–100%): Exceptional issue identification, all relevant authority cited, flawless IRAC...
+A  (80–89%):  Strong analysis, accurate citations, well-structured argument...
+B+ (75–79%):  Good analysis with minor gaps in authority or structure...">{{ rubric }}</textarea>
+        <button id="save-rubric" class="btn btn-primary" style="margin-top:.5rem;">Save rubric to project</button>
+    </div>
+</details>
+{% endif %}
+
+{% if rubric %}<div class="rubric-active-box">📋 <strong>Rubric active</strong> — essays and critiques will be aligned with your marking criteria.</div>{% endif %}
+
+<div class="step-row" id="steps">
+    <span class="step" data-step="q">1 · Analyse question</span>
+    <span class="step-arrow">→</span>
+    <span class="step" data-step="plan">2 · Plan</span>
+    <span class="step-arrow">→</span>
+    <span class="step" data-step="draft">3 · Draft</span>
+    <span class="step-arrow">→</span>
+    <span class="step" data-step="critique">4 · Critique</span>
+</div>
+
+<div class="tabs">
+    <button class="tab-button active" data-target="tab-analyse">📋 Analyse Question</button>
+    <button class="tab-button" data-target="tab-plan">📐 Essay Plan</button>
+    <button class="tab-button" data-target="tab-draft">📄 Full Draft</button>
+    <button class="tab-button" data-target="tab-critique">🔍 Critique</button>
+    <button class="tab-button" data-target="tab-chat">💬 Chat</button>
+</div>
+
+<!-- Analyse -->
+<div id="tab-analyse" class="tab-panel active">
+    <div class="tip-box">Paste your question or problem scenario — the assistant will identify all legal issues and the analytical approach.</div>
+    <div class="form-group">
+        <label>Essay / problem question</label>
+        <textarea id="q-analyse" class="essay-question" rows="5" placeholder="Paste your essay question or problem scenario here..."></textarea>
+    </div>
+    {% include "_doc_multiselect.html" %}
+    <button id="btn-analyse" class="btn btn-primary">Analyse question</button>
+    <div id="out-analyse" class="output-box"></div>
+</div>
+
+<!-- Plan -->
+<div id="tab-plan" class="tab-panel">
+    <div class="tip-box">Generates a numbered essay outline with issue headings, key authorities, and word allocations per section.</div>
+    <div class="form-group">
+        <label>Essay / problem question</label>
+        <textarea id="q-plan" class="essay-question" rows="4"></textarea>
+    </div>
+    <div class="row cols-2">
+        <div class="form-group">
+            <label>Word limit</label>
+            <select id="plan-wl">
+                <option value="500">500</option><option value="750">750</option>
+                <option value="1000">1000</option><option value="1500" selected>1500</option>
+                <option value="2000">2000</option><option value="2500">2500</option><option value="3000">3000</option>
+            </select>
+        </div>
+    </div>
+    <button id="btn-plan" class="btn btn-primary">Generate essay plan</button>
+    <div id="out-plan" class="output-box"></div>
+    <div class="output-toolbar"><button class="btn btn-secondary btn-sm" id="download-plan">📥 Download plan</button></div>
+</div>
+
+<!-- Draft -->
+<div id="tab-draft" class="tab-panel">
+    <div class="tip-box">Writes a full essay in NZ academic style using your plan and uploaded materials as authority.</div>
+    <div class="form-group">
+        <label>Essay / problem question</label>
+        <textarea id="q-draft" class="essay-question" rows="3"></textarea>
+    </div>
+    <div class="form-group">
+        <label>Essay plan</label>
+        <textarea id="plan-input" rows="7" placeholder="Generate a plan in the Plan tab, or paste one here."></textarea>
+    </div>
+    <div class="row cols-2">
+        <div class="form-group">
+            <label>Target word count</label>
+            <select id="draft-wl">
+                <option value="500">500</option><option value="750">750</option>
+                <option value="1000">1000</option><option value="1500" selected>1500</option>
+                <option value="2000">2000</option><option value="2500">2500</option><option value="3000">3000</option>
+            </select>
+        </div>
+    </div>
+    <button id="btn-draft" class="btn btn-primary">Draft essay</button>
+    <div id="out-draft" class="output-box"></div>
+    <div class="output-toolbar"><button class="btn btn-secondary btn-sm" id="download-draft">📥 Download draft</button></div>
+</div>
+
+<!-- Critique -->
+<div id="tab-critique" class="tab-panel">
+    <div class="tip-box">Paste your essay for detailed critique — structure, authority, citations, argument strength, and a grade band.</div>
+    <div class="form-group">
+        <label>Essay question</label>
+        <textarea id="q-critique" class="essay-question" rows="3"></textarea>
+    </div>
+    <div class="form-group">
+        <label>Your essay</label>
+        <textarea id="essay-critique-input" rows="10" placeholder="Paste your essay here..."></textarea>
+    </div>
+    <button id="btn-critique" class="btn btn-primary">Get critique</button>
+    <div id="out-critique" class="output-box"></div>
+</div>
+
+<!-- Chat -->
+<div id="tab-chat" class="tab-panel">
+    <div class="tip-box">Ask anything — strengthen an argument, understand a case, discuss counter-arguments, refine a paragraph.</div>
+    <div id="essay-chat-thread" class="chat-thread card" style="background:#FAFBFD;"></div>
+    <div class="chat-input-row">
+        <textarea id="essay-chat-input" placeholder="Ask about your essay or legal issues..." rows="2"></textarea>
+        <button id="essay-chat-send" class="btn btn-primary">Send</button>
+    </div>
+    <div class="flex" style="margin-top:.5rem;">
+        <button id="essay-chat-clear" class="btn btn-ghost btn-sm">Clear conversation</button>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const SAVED = {{ saved|tojson }};
+const PROJECT_ID = {{ (project.id if project else None) | tojson }};
+
+// Sync question textareas
+const questionInputs = document.querySelectorAll(".essay-question");
+let currentQuestion = SAVED.essay_question || "";
+let currentPlan = SAVED.essay_plan || "";
+let currentDraft = SAVED.essay_draft || "";
+let essayChatHistory = SAVED.chat_history || [];
+
+questionInputs.forEach(t => {
+    t.value = currentQuestion;
+    t.addEventListener("input", () => {
+        currentQuestion = t.value;
+        questionInputs.forEach(o => { if (o !== t) o.value = currentQuestion; });
+        save();
+    });
+});
+document.getElementById("plan-input").value = currentPlan;
+document.getElementById("plan-input").addEventListener("input", () => { currentPlan = document.getElementById("plan-input").value; save(); });
+
+function getDocIds() {
+    return getMultiSelectValues(document.querySelector("[data-doc-select]"));
+}
+
+function save() {
+    saveConversation("essay", {
+        chat_history: essayChatHistory,
+        essay_question: currentQuestion,
+        essay_plan: currentPlan,
+        essay_draft: currentDraft,
+    });
+    updateSteps();
+}
+
+function updateSteps() {
+    const q = !!currentQuestion.trim();
+    const p = !!currentPlan.trim();
+    const d = !!currentDraft.trim();
+    document.querySelector('[data-step="q"]').className = "step " + (q ? "done" : "active");
+    document.querySelector('[data-step="plan"]').className = "step " + (p ? "done" : (q ? "active" : ""));
+    document.querySelector('[data-step="draft"]').className = "step " + (d ? "done" : (p ? "active" : ""));
+    document.querySelector('[data-step="critique"]').className = "step " + (d ? "active" : "");
+}
+updateSteps();
+
+// Rubric save
+document.getElementById("save-rubric")?.addEventListener("click", async () => {
+    const rubric = document.getElementById("rubric-input").value;
+    await fetch(`/api/projects/${PROJECT_ID}/update`, {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ rubric }),
+    });
+    toast("Rubric saved", "success");
+    setTimeout(() => window.location.reload(), 800);
+});
+
+// Analyse
+document.getElementById("btn-analyse").addEventListener("click", async () => {
+    if (!currentQuestion.trim()) { toast("Enter a question first", "error"); return; }
+    await runStreaming({
+        url: "/api/essay/analyse",
+        body: { question: currentQuestion, doc_ids: getDocIds() },
+        outputEl: document.getElementById("out-analyse"),
+        button: document.getElementById("btn-analyse"),
+    });
+});
+
+// Plan
+document.getElementById("btn-plan").addEventListener("click", async () => {
+    if (!currentQuestion.trim()) { toast("Enter a question first", "error"); return; }
+    const wl = parseInt(document.getElementById("plan-wl").value);
+    const out = await runStreaming({
+        url: "/api/essay/plan",
+        body: { question: currentQuestion, word_limit: wl, doc_ids: getDocIds() },
+        outputEl: document.getElementById("out-plan"),
+        button: document.getElementById("btn-plan"),
+    });
+    if (out) {
+        currentPlan = out;
+        document.getElementById("plan-input").value = currentPlan;
+        save();
+    }
+});
+document.getElementById("download-plan").addEventListener("click", () => {
+    downloadText("essay_plan.md", document.getElementById("out-plan").innerText || currentPlan);
+});
+
+// Draft
+document.getElementById("btn-draft").addEventListener("click", async () => {
+    if (!currentQuestion.trim()) { toast("Enter a question first", "error"); return; }
+    const wl = parseInt(document.getElementById("draft-wl").value);
+    const plan = document.getElementById("plan-input").value;
+    const out = await runStreaming({
+        url: "/api/essay/draft",
+        body: { question: currentQuestion, plan, word_limit: wl, doc_ids: getDocIds() },
+        outputEl: document.getElementById("out-draft"),
+        button: document.getElementById("btn-draft"),
+    });
+    if (out) { currentDraft = out; save(); }
+});
+document.getElementById("download-draft").addEventListener("click", () => {
+    downloadText("essay_draft.md", document.getElementById("out-draft").innerText || currentDraft);
+});
+
+// Critique
+document.getElementById("btn-critique").addEventListener("click", async () => {
+    const q = document.getElementById("q-critique").value;
+    const essay = document.getElementById("essay-critique-input").value || currentDraft;
+    if (!q.trim() || !essay.trim()) { toast("Provide question and essay", "error"); return; }
+    await runStreaming({
+        url: "/api/essay/critique",
+        body: { question: q, essay },
+        outputEl: document.getElementById("out-critique"),
+        button: document.getElementById("btn-critique"),
+    });
+});
+document.getElementById("essay-critique-input").value = currentDraft;
+
+// Chat
+const chatThread = document.getElementById("essay-chat-thread");
+function renderEssayChat() {
+    chatThread.innerHTML = "";
+    if (essayChatHistory.length === 0) {
+        chatThread.innerHTML = '<div class="muted" style="text-align:center; padding:1.5rem;">Your conversation will appear here.</div>';
+        return;
+    }
+    essayChatHistory.forEach(m => {
+        const el = document.createElement("div");
+        el.className = `chat-msg ${m.role}`;
+        el.textContent = m.content;
+        chatThread.appendChild(el);
+    });
+    chatThread.scrollTop = chatThread.scrollHeight;
+}
+renderEssayChat();
+
+document.getElementById("essay-chat-send").addEventListener("click", async () => {
+    const input = document.getElementById("essay-chat-input");
+    const msg = input.value.trim();
+    if (!msg) return;
+    essayChatHistory.push({ role: "user", content: msg });
+    renderEssayChat();
+    input.value = "";
+    const assistantEl = document.createElement("div");
+    assistantEl.className = "chat-msg assistant";
+    chatThread.appendChild(assistantEl);
+    try {
+        const full = await streamPost("/api/essay/chat", {
+            message: msg, history: essayChatHistory.slice(0, -1), doc_ids: getDocIds(),
+        }, (_c, total) => {
+            assistantEl.textContent = total;
+            chatThread.scrollTop = chatThread.scrollHeight;
+        });
+        essayChatHistory.push({ role: "assistant", content: full });
+        save();
+    } catch (e) {
+        assistantEl.textContent = "Error: " + e.message;
+    }
+});
+
+document.getElementById("essay-chat-clear").addEventListener("click", () => {
+    essayChatHistory = [];
+    renderEssayChat();
+    save();
+});
+</script>
+{% endblock %}

@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}Case Analysis · NZ Law Assistant{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="icon">⚖️</div>
+    <div>
+        <h1>Case Law Analysis</h1>
+        <p class="subtitle">IRAC analysis · ratio decidendi · obiter dicta · case comparison</p>
+    </div>
+</div>
+
+{% if not case_docs %}
+    <div class="empty">
+        <div class="icon">📂</div>
+        <div class="msg">No case law uploaded yet</div>
+        <div class="sub">Go to <a href="{{ url_for('documents_page') }}">Documents</a> and upload case PDFs to get started.</div>
+    </div>
+{% else %}
+
+<div>
+    <div class="tabs">
+        <button class="tab-button active" data-target="tab-full">🔍 Full IRAC Analysis</button>
+        <button class="tab-button" data-target="tab-ratio">📌 Extract Ratio</button>
+        <button class="tab-button" data-target="tab-compare">🔄 Compare Cases</button>
+        <button class="tab-button" data-target="tab-chat">💬 Chat About Case</button>
+    </div>
+
+    <!-- Full Analysis -->
+    <div id="tab-full" class="tab-panel active">
+        <div class="tip-box">Select a case and click Analyse — you'll get a full IRAC breakdown, ratio, obiter, and critical commentary.</div>
+        <div class="form-group">
+            <label>Select a case</label>
+            <select id="full-case">
+                {% for d in case_docs %}<option value="{{ d.doc_id }}|{{ d.collection }}|{{ d.title }}">{{ d.title }}</option>{% endfor %}
+            </select>
+        </div>
+        <button id="btn-full" class="btn btn-primary">Analyse case</button>
+        <div id="out-full" class="output-box"></div>
+        <div class="output-toolbar"><button class="btn btn-secondary btn-sm" data-download="full" data-suffix="analysis">📥 Download</button></div>
+    </div>
+
+    <!-- Ratio -->
+    <div id="tab-ratio" class="tab-panel">
+        <div class="tip-box">Extracts the binding legal principle (ratio decidendi) and distinguishes it from obiter dicta.</div>
+        <div class="form-group">
+            <label>Select a case</label>
+            <select id="ratio-case">
+                {% for d in case_docs %}<option value="{{ d.doc_id }}|{{ d.collection }}|{{ d.title }}">{{ d.title }}</option>{% endfor %}
+            </select>
+        </div>
+        <button id="btn-ratio" class="btn btn-primary">Extract ratio decidendi</button>
+        <div id="out-ratio" class="output-box"></div>
+    </div>
+
+    <!-- Compare -->
+    <div id="tab-compare" class="tab-panel">
+        {% if case_docs|length < 2 %}
+            <div class="notice-box">Upload at least 2 cases to use comparison mode.</div>
+        {% else %}
+            <div class="tip-box">Compare how 2–4 cases treat the same legal issue — great for spotting tensions and developments in the law.</div>
+            <div class="form-group">
+                <label>Select cases to compare (2–4)</label>
+                <div id="compare-cases" class="multi-select">
+                    {% for d in case_docs %}
+                        <label><input type="checkbox" value="{{ d.doc_id }}" /> {{ d.title }}</label>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="form-group">
+                <label>What do you want to compare?</label>
+                <textarea id="compare-question" placeholder="e.g. How do these cases treat the duty of care in negligence?"></textarea>
+            </div>
+            <button id="btn-compare" class="btn btn-primary">Compare cases</button>
+            <div id="out-compare" class="output-box"></div>
+        {% endif %}
+    </div>
+
+    <!-- Chat -->
+    <div id="tab-chat" class="tab-panel">
+        <div class="tip-box">Ask anything about a specific case — facts, reasoning, significance, how it relates to other cases.</div>
+        <div class="form-group">
+            <label>Case to discuss</label>
+            <select id="chat-case">
+                {% for d in case_docs %}<option value="{{ d.doc_id }}|{{ d.collection }}|{{ d.title }}">{{ d.title }}</option>{% endfor %}
+            </select>
+        </div>
+        <div id="chat-thread" class="chat-thread card" style="background:#FAFBFD;"></div>
+        <div class="chat-input-row">
+            <textarea id="chat-input" placeholder="Ask about this case..." rows="2"></textarea>
+            <button id="chat-send" class="btn btn-primary">Send</button>
+        </div>
+        <div class="flex" style="margin-top:.5rem;">
+            <button id="chat-clear" class="btn btn-ghost btn-sm">Clear conversation</button>
+        </div>
+    </div>
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+const SAVED = {{ saved|tojson }};
+const PROJECT_ID = {{ (project.id if project else None) | tojson }};
+
+function parseCaseValue(v) {
+    const [doc_id, collection, title] = v.split("|");
+    return { doc_id, collection, title };
+}
+
+// ── Full Analysis
+document.getElementById("btn-full")?.addEventListener("click", async () => {
+    const c = parseCaseValue(document.getElementById("full-case").value);
+    const out = document.getElementById("out-full");
+    out._title = c.title;
+    await runStreaming({
+        url: "/api/case/full", body: { doc_id: c.doc_id, collection: c.collection },
+        outputEl: out, button: document.getElementById("btn-full"),
+    });
+});
+
+// ── Ratio
+document.getElementById("btn-ratio")?.addEventListener("click", async () => {
+    const c = parseCaseValue(document.getElementById("ratio-case").value);
+    await runStreaming({
+        url: "/api/case/ratio", body: { doc_id: c.doc_id, collection: c.collection },
+        outputEl: document.getElementById("out-ratio"),
+        button: document.getElementById("btn-ratio"),
+    });
+});
+
+// ── Compare
+document.getElementById("btn-compare")?.addEventListener("click", async () => {
+    const ids = getMultiSelectValues(document.getElementById("compare-cases"));
+    if (ids.length < 2) { toast("Pick at least 2 cases", "error"); return; }
+    const question = document.getElementById("compare-question").value;
+    await runStreaming({
+        url: "/api/case/compare", body: { doc_ids: ids, question },
+        outputEl: document.getElementById("out-compare"),
+        button: document.getElementById("btn-compare"),
+    });
+});
+
+// ── Download buttons
+document.querySelectorAll("[data-download]").forEach(btn => {
+    btn.addEventListener("click", () => {
+        const out = document.getElementById("out-" + btn.dataset.download);
+        const title = (out._title || "case").replace(/[^a-z0-9]+/gi, "_");
+        downloadText(`${title}_${btn.dataset.suffix}.md`, out.innerText);
+    });
+});
+
+// ── Chat
+const chatThread = document.getElementById("chat-thread");
+const chatCase = document.getElementById("chat-case");
+let chatHistory = [];
+let chatCaseId = null;
+
+function renderHistory() {
+    chatThread.innerHTML = "";
+    if (chatHistory.length === 0) {
+        chatThread.innerHTML = '<div class="muted" style="text-align:center; padding:1.5rem;">Ask a question below to start the conversation.</div>';
+        return;
+    }
+    chatHistory.forEach(m => {
+        const el = document.createElement("div");
+        el.className = `chat-msg ${m.role}`;
+        el.textContent = m.content;
+        chatThread.appendChild(el);
+    });
+    chatThread.scrollTop = chatThread.scrollHeight;
+}
+
+// Restore on load
+if (SAVED && SAVED.chat_history && SAVED.last_case_id) {
+    chatHistory = SAVED.chat_history;
+    chatCaseId = SAVED.last_case_id;
+    if (chatCase) {
+        const match = Array.from(chatCase.options).find(o => o.value.split("|")[0] === chatCaseId);
+        if (match) chatCase.value = match.value;
+    }
+}
+renderHistory();
+
+chatCase?.addEventListener("change", () => {
+    const newId = parseCaseValue(chatCase.value).doc_id;
+    if (newId !== chatCaseId) {
+        chatHistory = [];
+        chatCaseId = newId;
+        renderHistory();
+        saveConversation("case_analysis", { chat_history: chatHistory, last_case_id: chatCaseId });
+    }
+});
+
+document.getElementById("chat-send")?.addEventListener("click", async () => {
+    const input = document.getElementById("chat-input");
+    const msg = input.value.trim();
+    if (!msg) return;
+    const c = parseCaseValue(chatCase.value);
+    chatCaseId = c.doc_id;
+    chatHistory.push({ role: "user", content: msg });
+    renderHistory();
+    input.value = "";
+
+    const assistantEl = document.createElement("div");
+    assistantEl.className = "chat-msg assistant";
+    chatThread.appendChild(assistantEl);
+
+    const historyForApi = chatHistory.slice(0, -1);
+    try {
+        const full = await streamPost("/api/case/chat", {
+            message: msg, doc_id: c.doc_id, collection: c.collection,
+            history: historyForApi,
+        }, (_chunk, total) => {
+            assistantEl.textContent = total;
+            chatThread.scrollTop = chatThread.scrollHeight;
+        });
+        chatHistory.push({ role: "assistant", content: full });
+        saveConversation("case_analysis", { chat_history: chatHistory, last_case_id: chatCaseId });
+    } catch (e) {
+        assistantEl.textContent = "Error: " + e.message;
+    }
+});
+
+document.getElementById("chat-clear")?.addEventListener("click", () => {
+    chatHistory = [];
+    renderHistory();
+    saveConversation("case_analysis", { chat_history: [], last_case_id: chatCaseId });
+});
+</script>
+{% endblock %}

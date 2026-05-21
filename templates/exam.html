@@ -1,0 +1,308 @@
+{% extends "base.html" %}
+{% block title %}Exam Practice · NZ Law Assistant{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="icon">📝</div>
+    <div>
+        <h1>Exam Practice</h1>
+        <p class="subtitle">Strictly course-content only · IRAC model answers · past paper analysis</p>
+    </div>
+</div>
+
+<div class="metric-grid">
+    <div class="metric"><div class="label">Course docs</div><div class="value">{{ course_docs_count }}</div></div>
+    <div class="metric"><div class="label">Past papers</div><div class="value">{{ past_paper_docs|length }}</div></div>
+    <div class="metric"><div class="label">Workshop Qs</div><div class="value">{{ workshop_docs|length }}</div></div>
+    <div class="metric"><div class="label">Total docs</div><div class="value">{{ all_docs|length }}</div></div>
+</div>
+
+{% if not all_docs %}<div class="notice-box">⚠️ Upload course materials in <a href="{{ url_for('documents_page') }}">Documents</a> before generating practice questions.</div>{% endif %}
+
+<div class="notice-box">🔒 <strong>Course content only</strong> — questions and model answers are generated exclusively from your uploaded materials. Claude will not use general legal knowledge.</div>
+
+<div class="tabs">
+    <button class="tab-button active" data-target="tab-gen">🗒️ Generate Question</button>
+    <button class="tab-button" data-target="tab-model">📋 Model Answer</button>
+    <button class="tab-button" data-target="tab-mark">✏️ Mark My Answer</button>
+    <button class="tab-button" data-target="tab-past">📄 Past Papers</button>
+    <button class="tab-button" data-target="tab-ws">📚 Workshop Questions</button>
+</div>
+
+<!-- Generate -->
+<div id="tab-gen" class="tab-panel active">
+    <div class="tip-box">Generate a practice question in the exact style of your past papers and workshop questions.</div>
+    <div class="row cols-2">
+        <div class="form-group">
+            <label>Topic / legal issue</label>
+            <input id="gen-topic" type="text" placeholder="e.g. Offer and acceptance | Duty of care | Mens rea" />
+        </div>
+        <div class="form-group">
+            <label>Difficulty</label>
+            <select id="gen-diff"><option>Foundation</option><option selected>Intermediate</option><option>Advanced</option></select>
+        </div>
+    </div>
+    <div class="row cols-3">
+        <div class="form-group">
+            <label>Question type</label>
+            <select id="gen-type">
+                <option value="problem_question">Problem question</option>
+                <option value="essay_question">Essay question</option>
+                <option value="short_answer">Short answer</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Time (min)</label>
+            <input id="gen-time" type="number" min="10" max="120" value="30" step="5" />
+        </div>
+        <div class="form-group">
+            <label>Marks</label>
+            <input id="gen-marks" type="number" min="5" max="100" value="25" step="5" />
+        </div>
+    </div>
+    {% include "_doc_multiselect.html" %}
+    {% if past_paper_docs or workshop_docs %}
+    <div class="tiny" style="margin:-.4rem 0 .8rem;">Pattern sources: {{ past_paper_docs|length }} past paper(s) · {{ workshop_docs|length }} workshop set(s) will shape question style.</div>
+    {% endif %}
+    <button id="btn-gen" class="btn btn-primary">Generate question</button>
+    <div id="out-gen" class="output-box"></div>
+</div>
+
+<!-- Model -->
+<div id="tab-model" class="tab-panel">
+    <div class="tip-box">Model answers use IRAC structure and cite only cases/statutes from your uploaded materials.</div>
+    <div class="form-group">
+        <label>Question</label>
+        <textarea id="model-q" rows="5" placeholder="Paste a question here, or generate one in the Generate tab."></textarea>
+    </div>
+    <div class="row cols-2">
+        <div class="form-group"><label>Time (min)</label><input id="model-time" type="number" min="10" max="120" value="30" step="5" /></div>
+        <div class="form-group"><label>Marks</label><input id="model-marks" type="number" min="5" max="100" value="25" step="5" /></div>
+    </div>
+    <button id="btn-model" class="btn btn-primary">Show model answer</button>
+    <div id="out-model" class="output-box"></div>
+    <div class="output-toolbar"><button class="btn btn-secondary btn-sm" id="dl-model">📥 Download</button></div>
+</div>
+
+<!-- Mark -->
+<div id="tab-mark" class="tab-panel">
+    <div class="tip-box">Paste your answer for detailed feedback — what you got right, what you missed, and a grade band.</div>
+    <div class="form-group"><label>Question</label><textarea id="mark-q" rows="4" placeholder="Paste the question here."></textarea></div>
+    <div class="form-group"><label>Your answer</label><textarea id="mark-ans" rows="10" placeholder="Write or paste your answer here..."></textarea></div>
+    <button id="btn-mark" class="btn btn-primary">Get feedback</button>
+    <div id="out-mark" class="output-box"></div>
+</div>
+
+<!-- Past Papers -->
+<div id="tab-past" class="tab-panel">
+    <div class="row" style="grid-template-columns: 3fr 2fr;">
+        <div>
+            <h3>Upload past exam papers</h3>
+            <p class="muted">Upload past papers so the model learns your exam's format, question style, mark allocations, and topic weighting.</p>
+            <div class="dropzone" id="pp-dropzone">
+                <input type="file" id="pp-file" multiple accept=".pdf,.txt" />
+                <div class="icon">📄</div>
+                <div class="text">Click to upload past paper(s)</div>
+            </div>
+            <div id="pp-config" style="display:none; margin-top:.6rem;">
+                <div id="pp-rows"></div>
+                <button id="pp-upload" class="btn btn-primary btn-block" style="margin-top:.5rem;">⬆️ Upload past papers</button>
+            </div>
+            <div id="pp-progress"></div>
+        </div>
+        <div>
+            <h3>Uploaded past papers</h3>
+            {% if not past_paper_docs %}
+                <div class="empty"><div class="sub">No past papers yet</div></div>
+            {% else %}
+                {% for d in past_paper_docs %}
+                <div class="card" style="margin-bottom:.5rem;">
+                    <div class="card-row">
+                        <strong>{{ d.title }}</strong>
+                        <button class="btn btn-danger btn-sm" data-delete-doc="{{ d.doc_id }}" data-collection="{{ d.collection }}">🗑</button>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" data-analyse-pp="{{ d.doc_id }}" data-title="{{ d.title }}" style="margin-top:.5rem;">Analyse</button>
+                    <div class="output-box" id="pp-out-{{ d.doc_id }}" style="display:none;"></div>
+                </div>
+                {% endfor %}
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Workshop Questions -->
+<div id="tab-ws" class="tab-panel">
+    <div class="row" style="grid-template-columns: 3fr 2fr;">
+        <div>
+            <h3>Upload workshop / tutorial questions</h3>
+            <p class="muted">Upload questions from workshops or tutorials. The model will learn the question style and use these when generating practice questions.</p>
+            <div class="dropzone" id="ws-dropzone">
+                <input type="file" id="ws-file" multiple accept=".pdf,.txt" />
+                <div class="icon">📚</div>
+                <div class="text">Click to upload workshop question set(s)</div>
+            </div>
+            <div id="ws-config" style="display:none; margin-top:.6rem;">
+                <div id="ws-rows"></div>
+                <button id="ws-upload" class="btn btn-primary btn-block" style="margin-top:.5rem;">⬆️ Upload workshop questions</button>
+            </div>
+            <div id="ws-progress"></div>
+        </div>
+        <div>
+            <h3>Uploaded workshop questions</h3>
+            {% if not workshop_docs %}
+                <div class="empty"><div class="sub">No workshop questions yet</div></div>
+            {% else %}
+                {% for d in workshop_docs %}
+                <div class="card" style="margin-bottom:.5rem;">
+                    <div class="card-row">
+                        <strong>{{ d.title }}</strong>
+                        <button class="btn btn-danger btn-sm" data-delete-doc="{{ d.doc_id }}" data-collection="{{ d.collection }}">🗑</button>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" data-analyse-ws="{{ d.doc_id }}" data-title="{{ d.title }}" style="margin-top:.5rem;">Analyse style</button>
+                    <div class="output-box" id="ws-out-{{ d.doc_id }}" style="display:none;"></div>
+                </div>
+                {% endfor %}
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function getDocIds() { return getMultiSelectValues(document.querySelector("[data-doc-select]")); }
+
+// Generate
+document.getElementById("btn-gen").addEventListener("click", async () => {
+    const topic = document.getElementById("gen-topic").value.trim();
+    if (!topic) { toast("Enter a topic", "error"); return; }
+    await runStreaming({
+        url: "/api/exam/generate",
+        body: {
+            topic, type: document.getElementById("gen-type").value,
+            difficulty: document.getElementById("gen-diff").value.toLowerCase(),
+            time_minutes: parseInt(document.getElementById("gen-time").value),
+            marks: parseInt(document.getElementById("gen-marks").value),
+            doc_ids: getDocIds(),
+        },
+        outputEl: document.getElementById("out-gen"),
+        button: document.getElementById("btn-gen"),
+    });
+});
+
+// Model
+document.getElementById("btn-model").addEventListener("click", async () => {
+    const q = document.getElementById("model-q").value.trim();
+    if (!q) { toast("Paste a question", "error"); return; }
+    await runStreaming({
+        url: "/api/exam/model",
+        body: {
+            question: q,
+            time_minutes: parseInt(document.getElementById("model-time").value),
+            marks: parseInt(document.getElementById("model-marks").value),
+        },
+        outputEl: document.getElementById("out-model"),
+        button: document.getElementById("btn-model"),
+    });
+});
+document.getElementById("dl-model").addEventListener("click", () =>
+    downloadText("model_answer.md", document.getElementById("out-model").innerText));
+
+// Mark
+document.getElementById("btn-mark").addEventListener("click", async () => {
+    const q = document.getElementById("mark-q").value.trim();
+    const a = document.getElementById("mark-ans").value.trim();
+    if (!q || !a) { toast("Provide question and answer", "error"); return; }
+    await runStreaming({
+        url: "/api/exam/mark", body: { question: q, answer: a },
+        outputEl: document.getElementById("out-mark"),
+        button: document.getElementById("btn-mark"),
+    });
+});
+
+// Past paper analyse
+document.querySelectorAll("[data-analyse-pp]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+        const id = btn.dataset.analysePp;
+        const out = document.getElementById(`pp-out-${id}`);
+        out.style.display = "block";
+        await runStreaming({
+            url: "/api/exam/analyse-paper", body: { doc_id: id },
+            outputEl: out, button: btn,
+        });
+    });
+});
+document.querySelectorAll("[data-analyse-ws]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+        const id = btn.dataset.analyseWs;
+        const out = document.getElementById(`ws-out-${id}`);
+        out.style.display = "block";
+        await runStreaming({
+            url: "/api/exam/analyse-workshop", body: { doc_id: id },
+            outputEl: out, button: btn,
+        });
+    });
+});
+
+// Delete docs
+document.querySelectorAll("[data-delete-doc]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+        if (!confirm("Delete this document?")) return;
+        await fetch(`/api/documents/${btn.dataset.deleteDoc}/delete`, {
+            method: "POST", headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({ collection: btn.dataset.collection }),
+        });
+        window.location.reload();
+    });
+});
+
+// Dropzone helper
+function setupTypedDropzone(prefix, docType) {
+    const dz = document.getElementById(`${prefix}-dropzone`);
+    const fi = document.getElementById(`${prefix}-file`);
+    const config = document.getElementById(`${prefix}-config`);
+    const rows = document.getElementById(`${prefix}-rows`);
+    const btn = document.getElementById(`${prefix}-upload`);
+    let pend = [];
+
+    dz.addEventListener("click", () => fi.click());
+    dz.addEventListener("dragover", e => { e.preventDefault(); dz.classList.add("dragover"); });
+    dz.addEventListener("dragleave", () => dz.classList.remove("dragover"));
+    dz.addEventListener("drop", e => { e.preventDefault(); dz.classList.remove("dragover"); show(e.dataTransfer.files); });
+    fi.addEventListener("change", () => show(fi.files));
+
+    function show(files) {
+        pend = Array.from(files);
+        if (pend.length === 0) { config.style.display = "none"; return; }
+        rows.innerHTML = pend.map((f, i) =>
+            `<div class="file-list-row" style="grid-template-columns: 1fr auto;">
+                <input type="text" data-t="${i}" value="${f.name.replace(/\.[^.]+$/, '')}" />
+                <span class="name">${f.name}</span>
+            </div>`).join("");
+        config.style.display = "block";
+    }
+    btn.addEventListener("click", async () => {
+        if (!pend.length) return;
+        const titles = {}; const types = {};
+        pend.forEach((f, i) => {
+            titles[f.name] = rows.querySelector(`[data-t="${i}"]`).value;
+            types[f.name] = docType;
+        });
+        const form = new FormData();
+        pend.forEach(f => form.append("files", f));
+        form.append("titles", JSON.stringify(titles));
+        form.append("types", JSON.stringify(types));
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> Uploading...';
+        try {
+            await fetch("/api/documents/upload", { method: "POST", body: form });
+            toast("Uploaded — reloading...", "success");
+            setTimeout(() => window.location.reload(), 800);
+        } catch (e) { toast(e.message, "error"); btn.disabled = false; btn.innerHTML = "⬆️ Upload"; }
+    });
+}
+setupTypedDropzone("pp", "past_paper");
+setupTypedDropzone("ws", "workshop_question");
+</script>
+{% endblock %}

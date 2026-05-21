@@ -1,230 +1,469 @@
-import os
-import sys
-from datetime import datetime
+"""
+NZ Law School Essay Assistant — Flask web app.
 
-import streamlit as st
+Run with:
+    python app.py
+
+Then open http://localhost:5000 in your browser.
+Requires ANTHROPIC_API_KEY in a .env file.
+"""
+import json
+import os
+import secrets
+from typing import Generator
+
 from dotenv import load_dotenv
+from flask import (
+    Flask, Response, abort, jsonify, redirect, render_template, request,
+    send_from_directory, session, stream_with_context, url_for,
+)
 
 load_dotenv()
-sys.path.insert(0, os.path.dirname(__file__))
 
+import config
 import src.session_manager as sm
-from src.styles import apply_styles
+from src.case_analyzer import CaseAnalyzer
+from src.claude_client import ClaudeClient
+from src.document_processor import process_uploaded_file
+from src.essay_assistant import EssayAssistant
+from src.exam_practice import ExamPractice
+from src.notes_generator import NotesGenerator
+from src.prompts import PAST_PAPER_ANALYSIS_PROMPT
+from src.rag_pipeline import RAGPipeline
+from src.vector_store import LegalVectorStore
 
-st.set_page_config(
-    page_title="NZ Law School Assistant",
-    page_icon="⚖️",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
-apply_styles()
+app = Flask(__name__)
+app.secret_key = os.getenv("FLASK_SECRET", secrets.token_hex(32))
+app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024  # 64 MB upload cap
 
-# ── API key check ─────────────────────────────────────────────────────────────
-api_key = os.getenv("ANTHROPIC_API_KEY", "")
-if not api_key or not api_key.startswith("sk-"):
-    st.error(
-        "**API key not configured.** Create a `.env` file in the project root:\n"
-        "```\nANTHROPIC_API_KEY=sk-ant-...\n```",
-        icon="🔑",
-    )
+# ── Shared services ──────────────────────────────────────────────────────────
+_VS: LegalVectorStore | None = None
+_CLAUDE: ClaudeClient | None = None
+_PIPELINE: RAGPipeline | None = None
+_CASE: CaseAnalyzer | None = None
+_ESSAY: EssayAssistant | None = None
+_EXAM: ExamPractice | None = None
+_NOTES: NotesGenerator | None = None
 
-# ── Hero header ───────────────────────────────────────────────────────────────
-st.markdown("""
-<div style="
-    background: linear-gradient(135deg, #1B2D4F 0%, #253D68 55%, #2D5AA0 100%);
-    border-radius: 16px;
-    padding: 2.5rem 2.5rem 2rem;
-    margin-bottom: 2rem;
-    color: white;
-">
-    <div style="display:flex; align-items:center; gap:16px; margin-bottom:.5rem;">
-        <span style="font-size:2.8rem; line-height:1;">⚖️</span>
-        <div>
-            <h1 style="font-family:'Crimson Pro',Georgia,serif; font-size:2.4rem;
-                       font-weight:700; color:#fff; margin:0; line-height:1.1;">
-                NZ Law School Assistant
-            </h1>
-            <p style="color:rgba(255,255,255,.72); margin:.4rem 0 0; font-size:.95rem;">
-                AI-powered study companion · New Zealand law · NZ Law Style Guide (3rd ed)
-            </p>
-        </div>
-    </div>
-    <div style="display:flex; gap:12px; margin-top:1.25rem; flex-wrap:wrap;">
-        <span style="background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.2);
-                     border-radius:99px; padding:4px 14px; font-size:.8rem; color:rgba(255,255,255,.85);">
-            ⚖️ Case Law Analysis
-        </span>
-        <span style="background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.2);
-                     border-radius:99px; padding:4px 14px; font-size:.8rem; color:rgba(255,255,255,.85);">
-            ✍️ Essay Writing
-        </span>
-        <span style="background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.2);
-                     border-radius:99px; padding:4px 14px; font-size:.8rem; color:rgba(255,255,255,.85);">
-            📝 Exam Practice
-        </span>
-        <span style="background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.2);
-                     border-radius:99px; padding:4px 14px; font-size:.8rem; color:rgba(255,255,255,.85);">
-            📓 Notes Generator
-        </span>
-    </div>
-</div>
-""", unsafe_allow_html=True)
 
-# ── New Topic ─────────────────────────────────────────────────────────────────
-st.markdown("### ✨ Start a New Project")
+def services():
+    """Lazy-initialise the heavy services on first request."""
+    global _VS, _CLAUDE, _PIPELINE, _CASE, _ESSAY, _EXAM, _NOTES
+    if _VS is None:
+        _VS = LegalVectorStore()
+        _CLAUDE = ClaudeClient()
+        _PIPELINE = RAGPipeline(_VS, _CLAUDE)
+        _CASE = CaseAnalyzer(_PIPELINE)
+        _ESSAY = EssayAssistant(_PIPELINE)
+        _EXAM = ExamPractice(_PIPELINE)
+        _NOTES = NotesGenerator(_PIPELINE)
+    return _VS, _CASE, _ESSAY, _EXAM, _NOTES
 
-with st.container(border=True):
-    st.markdown(
-        "<p style='color:#64748B; font-size:.875rem; margin-bottom:.75rem;'>"
-        "Each project saves your conversations, essay drafts, rubric, and exam questions — "
-        "so you can pick up right where you left off."
-        "</p>",
-        unsafe_allow_html=True,
-    )
-    col_inp, col_btn = st.columns([4, 1])
-    with col_inp:
-        new_subject = st.text_input(
-            "Subject or topic",
-            placeholder="e.g.  Contract Law — Offer and Acceptance  |  Tort — Negligence  |  Criminal Law",
-            label_visibility="collapsed",
-        )
-    with col_btn:
-        start = st.button("Start →", type="primary", use_container_width=True)
 
-    if start:
-        if not new_subject.strip():
-            st.warning("Enter a subject or topic to begin.")
-        else:
-            project_id = sm.create_project(subject=new_subject.strip())
-            st.session_state["current_project_id"] = project_id
-            st.session_state["current_subject"] = new_subject.strip()
-            st.rerun()
+def current_project() -> dict | None:
+    pid = session.get("project_id")
+    if not pid:
+        return None
+    proj = sm.get_project(pid)
+    if not proj:
+        session.pop("project_id", None)
+        return None
+    return proj
 
-# ── Active project redirect banner ───────────────────────────────────────────
-active_id = st.session_state.get("current_project_id", "")
-if active_id:
-    proj = sm.get_project(active_id)
-    if proj:
-        st.markdown(
-            f"""<div style="background:#ECFDF5; border:1.5px solid #A7F3D0; border-left:4px solid #059669;
-                           border-radius:12px; padding:1rem 1.25rem; margin:.75rem 0;">
-                <strong style="color:#065F46;">Active project:</strong>
-                <span style="color:#065F46;"> {proj['subject']}</span>
-                <span style="color:#6EE7B7; margin-left:12px; font-size:.82rem;">
-                    Use the sidebar ← to navigate to your tools
-                </span>
-            </div>""",
-            unsafe_allow_html=True,
-        )
 
-st.divider()
+def common_context() -> dict:
+    proj = current_project()
+    return {
+        "project": proj,
+        "current_subject": (proj or {}).get("subject", ""),
+        "rubric": (proj or {}).get("rubric", ""),
+        "project_id": (proj or {}).get("id"),
+        "doc_type_labels": config.DOC_TYPE_LABELS,
+    }
 
-# ── My Projects ───────────────────────────────────────────────────────────────
-projects = sm.list_projects()
 
-_PAGE_ICONS = {"case_analysis": "⚖️", "essay": "✍️", "exam": "📝", "notes": "📓"}
-
-col_title, col_count = st.columns([5, 1])
-with col_title:
-    st.markdown("### 📁 My Projects")
-with col_count:
-    if projects:
-        st.markdown(
-            f"<p style='text-align:right; color:#64748B; font-size:.85rem; padding-top:.9rem;'>"
-            f"{len(projects)} project{'s' if len(projects)!=1 else ''}</p>",
-            unsafe_allow_html=True,
-        )
-
-if not projects:
-    st.markdown(
-        """<div style="background:white; border:1.5px dashed #DDE3EE; border-radius:12px;
-                      padding:2.5rem; text-align:center;">
-            <p style="font-size:2rem; margin:0;">📚</p>
-            <p style="color:#64748B; margin:.5rem 0 0; font-size:.9rem;">
-                No projects yet. Start one above to begin.
-            </p>
-        </div>""",
-        unsafe_allow_html=True,
-    )
-else:
-    def _fmt_date(iso: str) -> str:
+# ── Streaming helper ─────────────────────────────────────────────────────────
+def stream_response(gen: Generator[str, None, None]) -> Response:
+    def producer():
         try:
-            dt = datetime.fromisoformat(iso)
-            delta = datetime.utcnow() - dt
-            if delta.days == 0:
-                h = delta.seconds // 3600
-                return "Today" if h == 0 else f"{h}h ago"
-            if delta.days == 1:
-                return "Yesterday"
-            if delta.days < 7:
-                return f"{delta.days}d ago"
-            return dt.strftime("%-d %b %Y")
-        except Exception:
-            return iso[:10]
+            for chunk in gen:
+                if chunk:
+                    yield chunk
+        except Exception as exc:  # noqa: BLE001
+            yield f"\n\n[Error: {exc}]"
 
-    cols = st.columns(3)
-    for i, proj in enumerate(projects):
-        pages_used = sm.get_project_pages(proj["id"])
-        tools = " ".join(_PAGE_ICONS.get(p, "") for p in pages_used) if pages_used else ""
-        last_seen = _fmt_date(proj["updated_at"])
-        is_active = proj["id"] == st.session_state.get("current_project_id", "")
-        rubric_tag = "📋 " if proj.get("rubric") else ""
+    return Response(
+        stream_with_context(producer()),
+        mimetype="text/plain; charset=utf-8",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
 
-        with cols[i % 3]:
-            active_border = "border-color:#1B2D4F; box-shadow:0 0 0 2px rgba(27,45,79,.15);" if is_active else ""
-            st.markdown(
-                f"""<div class="project-card" style="{active_border}">
-                    <p class="subject">{proj['subject']}</p>
-                    <p class="meta">{rubric_tag}Last active: {last_seen}</p>
-                    {"<p class='tools'>" + tools + "</p>" if tools else ""}
-                </div>""",
-                unsafe_allow_html=True,
+
+# ── Error handlers ───────────────────────────────────────────────────────────
+@app.errorhandler(413)
+def too_large(_):
+    return jsonify(error="File too large (limit 64 MB)"), 413
+
+
+# ── Pages ────────────────────────────────────────────────────────────────────
+@app.route("/")
+def home():
+    projects = sm.list_projects()
+    pages_by_project = {p["id"]: sm.get_project_pages(p["id"]) for p in projects}
+    return render_template(
+        "home.html",
+        projects=projects,
+        pages_by_project=pages_by_project,
+        **common_context(),
+    )
+
+
+@app.route("/documents")
+def documents_page():
+    vs, *_ = services()
+    all_docs = vs.list_documents()
+    counts: dict[str, int] = {}
+    for d in all_docs:
+        counts[d["doc_type"]] = counts.get(d["doc_type"], 0) + 1
+    return render_template(
+        "documents.html",
+        all_docs=all_docs,
+        counts=counts,
+        **common_context(),
+    )
+
+
+@app.route("/case-analysis")
+def case_analysis_page():
+    vs, *_ = services()
+    case_docs = [d for d in vs.list_documents() if d["doc_type"] == "case_law"]
+    saved = (sm.load_conversation(session["project_id"], "case_analysis")
+             if session.get("project_id") else {})
+    return render_template(
+        "case_analysis.html",
+        case_docs=case_docs,
+        saved=saved,
+        **common_context(),
+    )
+
+
+@app.route("/essay")
+def essay_page():
+    vs, *_ = services()
+    all_docs = vs.list_documents()
+    saved = (sm.load_conversation(session["project_id"], "essay")
+             if session.get("project_id") else {})
+    return render_template(
+        "essay.html",
+        all_docs=all_docs,
+        saved=saved,
+        **common_context(),
+    )
+
+
+@app.route("/exam")
+def exam_page():
+    vs, *_ = services()
+    all_docs = vs.list_documents()
+    past_paper_docs = [d for d in all_docs if d["doc_type"] == "past_paper"]
+    workshop_docs = [d for d in all_docs if d["doc_type"] == "workshop_question"]
+    course_docs_count = sum(
+        1 for d in all_docs
+        if d["doc_type"] in ("case_law", "lecture", "statute", "article")
+    )
+    saved = (sm.load_conversation(session["project_id"], "exam")
+             if session.get("project_id") else {})
+    return render_template(
+        "exam.html",
+        all_docs=all_docs,
+        past_paper_docs=past_paper_docs,
+        workshop_docs=workshop_docs,
+        course_docs_count=course_docs_count,
+        saved=saved,
+        **common_context(),
+    )
+
+
+@app.route("/notes")
+def notes_page():
+    vs, *_ = services()
+    all_docs = vs.list_documents()
+    case_docs = [d for d in all_docs if d["doc_type"] == "case_law"]
+    return render_template(
+        "notes.html",
+        all_docs=all_docs,
+        case_docs=case_docs,
+        **common_context(),
+    )
+
+
+# ── Project routes ───────────────────────────────────────────────────────────
+@app.post("/api/projects")
+def api_create_project():
+    data = request.get_json(silent=True) or request.form
+    subject = (data.get("subject") or "").strip()
+    description = (data.get("description") or "").strip()
+    if not subject:
+        return jsonify(error="Subject required"), 400
+    pid = sm.create_project(subject=subject, description=description)
+    session["project_id"] = pid
+    return jsonify(project_id=pid, redirect=url_for("documents_page"))
+
+
+@app.post("/api/projects/<pid>/open")
+def api_open_project(pid: str):
+    if not sm.get_project(pid):
+        return jsonify(error="Project not found"), 404
+    session["project_id"] = pid
+    sm.touch_project(pid)
+    return jsonify(ok=True, redirect=url_for("documents_page"))
+
+
+@app.post("/api/projects/<pid>/update")
+def api_update_project(pid: str):
+    data = request.get_json(silent=True) or {}
+    sm.update_project(
+        pid,
+        subject=data.get("subject"),
+        rubric=data.get("rubric"),
+        description=data.get("description"),
+    )
+    return jsonify(ok=True)
+
+
+@app.post("/api/projects/<pid>/delete")
+def api_delete_project(pid: str):
+    sm.delete_project(pid)
+    if session.get("project_id") == pid:
+        session.pop("project_id", None)
+    return jsonify(ok=True)
+
+
+@app.post("/api/leave-project")
+def api_leave_project():
+    session.pop("project_id", None)
+    return jsonify(ok=True, redirect=url_for("home"))
+
+
+# ── Conversation persistence ─────────────────────────────────────────────────
+@app.post("/api/save-conversation")
+def api_save_conversation():
+    pid = session.get("project_id")
+    if not pid:
+        return jsonify(ok=False, reason="no_project"), 200
+    data = request.get_json(silent=True) or {}
+    page = data.get("page", "")
+    payload = data.get("data", {})
+    if not page:
+        return jsonify(error="page required"), 400
+    sm.save_conversation(pid, page, payload)
+    return jsonify(ok=True)
+
+
+# ── Documents ────────────────────────────────────────────────────────────────
+@app.post("/api/documents/upload")
+def api_upload_documents():
+    vs, *_ = services()
+    files = request.files.getlist("files")
+    titles = json.loads(request.form.get("titles") or "{}")
+    types = json.loads(request.form.get("types") or "{}")
+    if not files:
+        return jsonify(error="No files"), 400
+
+    results = []
+    for uf in files:
+        if not uf or not uf.filename:
+            continue
+        title = (titles.get(uf.filename) or uf.filename.rsplit(".", 1)[0]).strip()
+        doc_type = (types.get(uf.filename) or "").strip() or None
+        try:
+            doc = process_uploaded_file(
+                file_bytes=uf.read(),
+                original_filename=uf.filename,
+                title=title,
+                doc_type=doc_type,
             )
-            btn_col, del_col = st.columns([3, 1])
-            with btn_col:
-                label = "✓ Active" if is_active else "Open →"
-                if st.button(label, key=f"open_{proj['id']}", use_container_width=True,
-                             type="primary" if is_active else "secondary"):
-                    st.session_state["current_project_id"] = proj["id"]
-                    st.session_state["current_subject"] = proj["subject"]
-                    # Reset page-level state so saved conversations reload
-                    for key in ["case_chat_history","essay_chat_history","essay_question_input",
-                                "essay_plan","essay_draft","generated_question"]:
-                        st.session_state.pop(key, None)
-                    sm.touch_project(proj["id"])
-                    st.rerun()
-            with del_col:
-                if st.button("🗑", key=f"del_{proj['id']}", use_container_width=True,
-                             help="Delete this project"):
-                    sm.delete_project(proj["id"])
-                    if st.session_state.get("current_project_id") == proj["id"]:
-                        st.session_state.pop("current_project_id", None)
-                    st.rerun()
+            collection = config.COLLECTIONS.get(doc.doc_type, config.COLLECTIONS["other"])
+            vs.add_chunks(doc.chunks, collection)
+            results.append({
+                "ok": True,
+                "filename": uf.filename,
+                "title": title,
+                "doc_type": doc.doc_type,
+                "chunks": len(doc.chunks),
+                "chars": len(doc.full_text),
+            })
+        except Exception as exc:  # noqa: BLE001
+            results.append({"ok": False, "filename": uf.filename, "error": str(exc)})
+    return jsonify(results=results)
 
-# ── How it works ──────────────────────────────────────────────────────────────
-st.divider()
-st.markdown("### 🗺️ How to use this tool")
 
-c1, c2, c3, c4 = st.columns(4)
-cards = [
-    ("📂", "1. Upload Materials",
-     "Upload lecture slides, case law PDFs, past papers, and workshop questions in **Documents**."),
-    ("🔬", "2. Analyse Cases",
-     "Get full IRAC analysis, extract the ratio decidendi, compare cases, or chat about a case."),
-    ("✍️", "3. Write Essays",
-     "Analyse your question, generate a structured plan, draft in NZ academic style, get critique."),
-    ("📝", "4. Practise Exams",
-     "Generate practice questions from your course materials only, get model answers, and get marked."),
-]
-for col, (icon, title, body) in zip([c1,c2,c3,c4], cards):
-    with col:
-        st.markdown(
-            f"""<div style="background:white; border:1.5px solid #DDE3EE; border-radius:12px;
-                           padding:1.1rem 1.1rem 1.25rem; height:100%;
-                           box-shadow:0 1px 3px rgba(27,45,79,.06);">
-                <p style="font-size:1.6rem; margin:0 0 .5rem;">{icon}</p>
-                <p style="font-weight:600; color:#1B2D4F; margin:0 0 .4rem; font-size:.9rem;">{title}</p>
-                <p style="color:#64748B; font-size:.82rem; line-height:1.55; margin:0;">{body}</p>
-            </div>""",
-            unsafe_allow_html=True,
+@app.post("/api/documents/<doc_id>/delete")
+def api_delete_document(doc_id: str):
+    vs, *_ = services()
+    payload = request.get_json(silent=True) or {}
+    collection = payload.get("collection")
+    if not collection:
+        return jsonify(error="collection required"), 400
+    vs.delete_document(doc_id, collection)
+    return jsonify(ok=True)
+
+
+# ── Case Analysis ────────────────────────────────────────────────────────────
+@app.post("/api/case/<action>")
+def api_case(action: str):
+    _, case, *_ = services()
+    payload = request.get_json(silent=True) or {}
+    subject = (current_project() or {}).get("subject", "")
+
+    if action == "full":
+        return stream_response(case.analyse_full_case(
+            doc_id=payload["doc_id"], collection_name=payload["collection"],
+            current_subject=subject,
+        ))
+    if action == "ratio":
+        return stream_response(case.extract_ratio(
+            doc_id=payload["doc_id"], collection_name=payload["collection"],
+            current_subject=subject,
+        ))
+    if action == "compare":
+        return stream_response(case.compare_cases(
+            doc_ids=payload["doc_ids"],
+            collection_name=config.COLLECTIONS["case_law"],
+            comparison_question=payload.get("question") or "the key legal issues",
+            current_subject=subject,
+        ))
+    if action == "chat":
+        return stream_response(case.chat_about_case(
+            user_message=payload["message"],
+            doc_id=payload["doc_id"], collection_name=payload["collection"],
+            history=payload.get("history") or [], current_subject=subject,
+        ))
+    abort(404)
+
+
+# ── Essay Assistant ──────────────────────────────────────────────────────────
+@app.post("/api/essay/<action>")
+def api_essay(action: str):
+    _, _, essay, *_ = services()
+    payload = request.get_json(silent=True) or {}
+    proj = current_project() or {}
+    subject = proj.get("subject", "")
+    rubric = proj.get("rubric", "")
+    doc_ids = payload.get("doc_ids") or None
+
+    if action == "analyse":
+        return stream_response(essay.analyse_question(
+            question=payload["question"], doc_ids=doc_ids,
+            current_subject=subject, rubric=rubric,
+        ))
+    if action == "plan":
+        return stream_response(essay.generate_plan(
+            question=payload["question"],
+            word_limit=int(payload.get("word_limit", 1500)),
+            doc_ids=doc_ids, current_subject=subject, rubric=rubric,
+        ))
+    if action == "draft":
+        return stream_response(essay.draft_essay(
+            question=payload["question"], plan=payload.get("plan", ""),
+            word_limit=int(payload.get("word_limit", 1500)),
+            doc_ids=doc_ids, current_subject=subject, rubric=rubric,
+        ))
+    if action == "critique":
+        return stream_response(essay.critique_essay(
+            question=payload["question"], essay_text=payload["essay"],
+            current_subject=subject, rubric=rubric,
+        ))
+    if action == "chat":
+        return stream_response(essay.chat(
+            message=payload["message"], history=payload.get("history") or [],
+            doc_ids=doc_ids, current_subject=subject, rubric=rubric,
+        ))
+    abort(404)
+
+
+# ── Exam Practice ────────────────────────────────────────────────────────────
+@app.post("/api/exam/<action>")
+def api_exam(action: str):
+    _, _, _, exam, _ = services()
+    payload = request.get_json(silent=True) or {}
+    subject = (current_project() or {}).get("subject", "")
+    doc_ids = payload.get("doc_ids") or None
+
+    if action == "generate":
+        return stream_response(exam.generate_questions(
+            topic=payload["topic"],
+            question_type=payload.get("type", "problem_question"),
+            difficulty=payload.get("difficulty", "intermediate"),
+            n_questions=1,
+            doc_ids=doc_ids,
+            time_minutes=int(payload.get("time_minutes", 30)),
+            marks=int(payload.get("marks", 25)),
+            current_subject=subject,
+        ))
+    if action == "model":
+        return stream_response(exam.model_answer(
+            question=payload["question"],
+            time_minutes=int(payload.get("time_minutes", 30)),
+            marks=int(payload.get("marks", 25)),
+            doc_ids=doc_ids, current_subject=subject,
+        ))
+    if action == "mark":
+        return stream_response(exam.mark_answer(
+            question=payload["question"], student_answer=payload["answer"],
+            doc_ids=doc_ids, current_subject=subject,
+        ))
+    if action == "analyse-paper":
+        return stream_response(exam.analyse_past_paper(
+            doc_id=payload["doc_id"], current_subject=subject,
+        ))
+    if action == "analyse-workshop":
+        chunks = exam.pipeline.retrieve_full_document(
+            payload["doc_id"], config.COLLECTIONS["workshop_question"]
         )
+        return stream_response(exam.pipeline.stream(
+            system_prompt=PAST_PAPER_ANALYSIS_PROMPT,
+            user_query=(
+                "Analyse these workshop/tutorial questions. Extract: topics covered, "
+                "question types and formats, difficulty level, skills being tested, "
+                "and how they compare to typical exam questions."
+            ),
+            mode="exam", chunks=chunks, current_subject=subject,
+        ))
+    abort(404)
+
+
+# ── Notes ────────────────────────────────────────────────────────────────────
+@app.post("/api/notes/<action>")
+def api_notes(action: str):
+    _, _, _, _, notes = services()
+    payload = request.get_json(silent=True) or {}
+    subject = (current_project() or {}).get("subject", "")
+    doc_ids = payload.get("doc_ids") or None
+
+    if action == "lecture":
+        return stream_response(notes.lecture_notes(
+            topic=payload["topic"], doc_ids=doc_ids, current_subject=subject,
+        ))
+    if action == "table":
+        return stream_response(notes.case_summary_table(
+            doc_ids=payload["doc_ids"], current_subject=subject,
+        ))
+    if action == "overview":
+        return stream_response(notes.topic_overview(
+            topic=payload["topic"], doc_ids=doc_ids, current_subject=subject,
+        ))
+    if action == "revision":
+        return stream_response(notes.revision_notes(
+            topic=payload["topic"], doc_ids=doc_ids, current_subject=subject,
+        ))
+    abort(404)
+
+
+# ── Entrypoint ───────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", "5000"))
+    host = os.getenv("HOST", "127.0.0.1")
+    debug = os.getenv("FLASK_DEBUG", "0") == "1"
+    print(f"\n  NZ Law Assistant -> http://{host}:{port}\n")
+    app.run(host=host, port=port, debug=debug, threaded=True)

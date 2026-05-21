@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+{% block title %}Documents · NZ Law Assistant{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="icon">📂</div>
+    <div>
+        <h1>Document Library</h1>
+        <p class="subtitle">Upload your course materials — they are the source of truth for all analysis, essays, and exam practice.</p>
+    </div>
+</div>
+
+{% if all_docs %}
+<div class="metric-grid">
+    {% for dtype, cnt in counts.items() %}
+        <div class="metric">
+            <div class="label">{{ doc_type_labels.get(dtype, dtype) }}</div>
+            <div class="value">{{ cnt }}</div>
+        </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<h2 class="section-heading">Upload new documents</h2>
+<div class="tip-box">📑 Upload PDFs, PowerPoints, or text files. The system auto-detects the document type, but you can override it.</div>
+
+<div class="card">
+    <div class="dropzone" id="dropzone">
+        <input type="file" id="file-input" multiple accept=".pdf,.pptx,.ppt,.txt" />
+        <div class="icon">⬆️</div>
+        <div class="text"><strong>Drop files here</strong> or click to browse</div>
+        <div class="tiny" style="margin-top:.3rem;">PDF, PPTX, TXT</div>
+    </div>
+
+    <div id="file-config" class="file-list" style="display:none;">
+        <div class="muted" style="margin:.8rem 0 .4rem;">Configure each document:</div>
+        <div id="file-rows"></div>
+        <button id="upload-btn" class="btn btn-primary btn-block" style="margin-top:.7rem;">⬆️ Process & upload</button>
+    </div>
+
+    <div id="upload-progress" class="col" style="margin-top:.8rem;"></div>
+</div>
+
+<div class="divider"></div>
+
+<h2 class="section-heading">Your library</h2>
+{% if not all_docs %}
+    <div class="empty">
+        <div class="icon">📭</div>
+        <div class="msg">No documents yet</div>
+        <div class="sub">Upload lecture slides, case PDFs, articles, past papers, and workshop questions above.</div>
+    </div>
+{% else %}
+    <div class="form-group" style="max-width:260px;">
+        <label for="type-filter">Filter by type</label>
+        <select id="type-filter">
+            <option value="all">All ({{ all_docs|length }})</option>
+            {% for dtype, label in doc_type_labels.items() %}
+                {% if counts.get(dtype, 0) > 0 %}
+                    <option value="{{ dtype }}">{{ label }} ({{ counts[dtype] }})</option>
+                {% endif %}
+            {% endfor %}
+        </select>
+    </div>
+
+    <div id="library-list">
+        {% for doc in all_docs %}
+            {% set badge_cls = {
+                'case_law':'badge-case', 'lecture':'badge-lecture', 'article':'badge-article',
+                'statute':'badge-statute', 'past_paper':'badge-pastpaper',
+                'workshop_question':'badge-workshop', 'instruction':'badge-instruct'
+            }.get(doc.doc_type, 'badge-other') %}
+            <div class="doc-row" data-doc-type="{{ doc.doc_type }}">
+                <div>
+                    <div class="title">{{ doc.title }}
+                        <span class="badge {{ badge_cls }}">{{ doc_type_labels.get(doc.doc_type, doc.doc_type) }}</span>
+                    </div>
+                    <div class="file">{{ doc.source_filename }}</div>
+                </div>
+                <button class="btn btn-danger btn-sm"
+                        data-delete-doc="{{ doc.doc_id }}"
+                        data-collection="{{ doc.collection }}"
+                        title="Delete">🗑</button>
+            </div>
+        {% endfor %}
+    </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+const DOC_TYPES = {{ doc_type_labels|tojson }};
+let pendingFiles = [];
+
+const dropzone = document.getElementById("dropzone");
+const fileInput = document.getElementById("file-input");
+const fileConfig = document.getElementById("file-config");
+const fileRows = document.getElementById("file-rows");
+
+dropzone.addEventListener("click", () => fileInput.click());
+dropzone.addEventListener("dragover", e => { e.preventDefault(); dropzone.classList.add("dragover"); });
+dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+dropzone.addEventListener("drop", e => {
+    e.preventDefault();
+    dropzone.classList.remove("dragover");
+    handleFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener("change", () => handleFiles(fileInput.files));
+
+function handleFiles(fileList) {
+    pendingFiles = Array.from(fileList);
+    if (pendingFiles.length === 0) { fileConfig.style.display = "none"; return; }
+    fileRows.innerHTML = "";
+    pendingFiles.forEach((f, i) => {
+        const row = document.createElement("div");
+        row.className = "file-list-row";
+        row.innerHTML = `
+            <input type="text" data-title="${i}" value="${f.name.replace(/\.[^.]+$/, '')}" placeholder="Title" />
+            <select data-type="${i}">
+                ${Object.entries(DOC_TYPES).map(([k,v]) => `<option value="${k}">${v}</option>`).join('')}
+            </select>
+            <span class="name">${f.name}</span>
+        `;
+        fileRows.appendChild(row);
+    });
+    fileConfig.style.display = "block";
+}
+
+document.getElementById("upload-btn").addEventListener("click", async () => {
+    if (pendingFiles.length === 0) return;
+    const titles = {}; const types = {};
+    pendingFiles.forEach((f, i) => {
+        titles[f.name] = fileRows.querySelector(`[data-title="${i}"]`).value;
+        types[f.name] = fileRows.querySelector(`[data-type="${i}"]`).value;
+    });
+    const form = new FormData();
+    pendingFiles.forEach(f => form.append("files", f));
+    form.append("titles", JSON.stringify(titles));
+    form.append("types", JSON.stringify(types));
+
+    const progress = document.getElementById("upload-progress");
+    progress.innerHTML = `<div class="muted"><span class="spinner dark"></span> Processing ${pendingFiles.length} file(s)...</div>`;
+    const btn = document.getElementById("upload-btn");
+    btn.disabled = true;
+    try {
+        const res = await fetch("/api/documents/upload", { method: "POST", body: form });
+        const j = await res.json();
+        let html = "";
+        j.results.forEach(r => {
+            if (r.ok) {
+                html += `<div class="notice-box" style="background:var(--green-bg); color:#166534; border-color:#86EFAC; border-left-color:var(--green);">
+                    ✓ <strong>${r.title}</strong> — ${r.chars.toLocaleString()} chars, ${r.chunks} chunks</div>`;
+            } else {
+                html += `<div class="notice-box" style="background:var(--red-bg); color:var(--red); border-color:#FCA5A5; border-left-color:var(--red);">
+                    ✗ <strong>${r.filename}</strong> — ${r.error}</div>`;
+            }
+        });
+        progress.innerHTML = html;
+        toast("Upload complete — reloading...", "success");
+        setTimeout(() => window.location.reload(), 1200);
+    } catch (e) {
+        progress.innerHTML = `<div style="color:var(--red);">Upload failed: ${e.message}</div>`;
+        btn.disabled = false;
+    }
+});
+
+document.querySelectorAll("[data-delete-doc]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+        if (!confirm("Delete this document and all its chunks?")) return;
+        const docId = btn.dataset.deleteDoc;
+        const collection = btn.dataset.collection;
+        await fetch(`/api/documents/${docId}/delete`, {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({ collection }),
+        });
+        btn.closest(".doc-row").remove();
+        toast("Deleted", "success");
+    });
+});
+
+const filter = document.getElementById("type-filter");
+if (filter) {
+    filter.addEventListener("change", () => {
+        const v = filter.value;
+        document.querySelectorAll("[data-doc-type]").forEach(row => {
+            row.style.display = (v === "all" || row.dataset.docType === v) ? "" : "none";
+        });
+    });
+}
+</script>
+{% endblock %}

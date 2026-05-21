@@ -1,0 +1,12 @@
+<div class="form-group">
+    <label>Restrict to these documents (optional — leave empty to search all)</label>
+    <div class="multi-select" data-doc-select>
+        {% if all_docs %}
+            {% for d in all_docs %}
+                <label><input type="checkbox" value="{{ d.doc_id }}" /> {{ d.title }} <span class="tiny">({{ doc_type_labels.get(d.doc_type, d.doc_type) }})</span></label>
+            {% endfor %}
+        {% else %}
+            <div class="empty-state">No documents uploaded. <a href="{{ url_for('documents_page') }}">Upload some →</a></div>
+        {% endif %}
+    </div>
+</div>

@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Projects · NZ Law Assistant{% endblock %}
+
+{% block content %}
+<div class="hero">
+    <h1>Welcome back</h1>
+    <p class="lede">Read cases in depth, draft NZ-style essays, generate course-grounded exam practice, and build advanced notes — all from your own materials.</p>
+</div>
+
+<div class="card" style="margin-bottom:1.25rem;">
+    <h2 style="margin-bottom:.5rem;">Start a new project</h2>
+    <p class="muted">A project bundles your subject, rubric, conversations, and progress in one place.</p>
+    <form id="new-project-form" class="row cols-2" style="margin-top:.8rem; align-items:end;">
+        <div>
+            <label for="np-subject">Subject / topic</label>
+            <input id="np-subject" name="subject" type="text" placeholder="e.g. Contract Law — Promissory Estoppel" required />
+        </div>
+        <div class="flex-end" style="height:42px;">
+            <button type="submit" class="btn btn-primary">Create project →</button>
+        </div>
+    </form>
+</div>
+
+<h2 style="margin: 1.5rem 0 .8rem;">My projects</h2>
+{% if projects %}
+    <div class="project-grid">
+        {% for p in projects %}
+            <div class="project-card" data-project-id="{{ p.id }}">
+                <button class="btn btn-ghost btn-sm delete-btn" data-delete="{{ p.id }}" title="Delete">🗑</button>
+                <div class="subject">{{ p.subject }}</div>
+                {% if p.description %}<div class="desc">{{ p.description }}</div>{% endif %}
+                <div class="meta">
+                    <span>📅 {{ p.updated_at[:10] }}</span>
+                    <span>{{ p.page_count }} tool{{ '' if p.page_count == 1 else 's' }} used</span>
+                </div>
+                {% set used = pages_by_project[p.id] %}
+                {% if used %}
+                <div class="pages-used">
+                    {% if 'essay' in used %}<span class="tiny-icon">✍️ Essay</span>{% endif %}
+                    {% if 'case_analysis' in used %}<span class="tiny-icon">⚖️ Case</span>{% endif %}
+                    {% if 'exam' in used %}<span class="tiny-icon">📝 Exam</span>{% endif %}
+                </div>
+                {% endif %}
+            </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="empty">
+        <div class="icon">📚</div>
+        <div class="msg">No projects yet</div>
+        <div class="sub">Create one above to get started.</div>
+    </div>
+{% endif %}
+
+<div class="divider"></div>
+
+<h2 style="margin-bottom:.6rem;">How to use it</h2>
+<div class="row cols-4">
+    <div class="card"><strong>1. Create a project</strong><p class="muted" style="margin-top:.3rem;">Name your subject — everything you do is saved here.</p></div>
+    <div class="card"><strong>2. Upload materials</strong><p class="muted" style="margin-top:.3rem;">Lectures, cases, past papers, workshop questions.</p></div>
+    <div class="card"><strong>3. Pick a tool</strong><p class="muted" style="margin-top:.3rem;">Case analysis · essay help · exam practice · notes.</p></div>
+    <div class="card"><strong>4. Come back anytime</strong><p class="muted" style="margin-top:.3rem;">Conversations persist per project.</p></div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById("new-project-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const subject = document.getElementById("np-subject").value.trim();
+    if (!subject) return;
+    const res = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subject }),
+    });
+    const j = await res.json();
+    if (j.redirect) window.location.href = j.redirect;
+});
+
+document.querySelectorAll(".project-card").forEach(card => {
+    card.addEventListener("click", async (e) => {
+        if (e.target.closest("[data-delete]")) return;
+        const pid = card.dataset.projectId;
+        const res = await fetch(`/api/projects/${pid}/open`, { method: "POST" });
+        const j = await res.json();
+        if (j.redirect) window.location.href = j.redirect;
+    });
+});
+
+document.querySelectorAll("[data-delete]").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (!confirm("Delete this project? Its saved conversations will be lost.")) return;
+        await fetch(`/api/projects/${btn.dataset.delete}/delete`, { method: "POST" });
+        btn.closest(".project-card").remove();
+        toast("Project deleted", "success");
+    });
+});
+</script>
+{% endblock %}

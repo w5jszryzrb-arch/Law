@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Notes · NZ Law Assistant{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="icon">📓</div>
+    <div>
+        <h1>Notes Generator</h1>
+        <p class="subtitle">Generate structured legal notes from your uploaded course materials</p>
+    </div>
+</div>
+
+{% if not all_docs %}
+    <div class="empty">
+        <div class="icon">📭</div>
+        <div class="msg">No documents uploaded yet</div>
+        <div class="sub">Go to <a href="{{ url_for('documents_page') }}">Documents</a> and upload your course materials first.</div>
+    </div>
+{% else %}
+
+<div class="tabs">
+    <button class="tab-button active" data-target="tab-lecture">📚 Lecture Notes</button>
+    <button class="tab-button" data-target="tab-table">📊 Case Table</button>
+    <button class="tab-button" data-target="tab-overview">🗺️ Topic Overview</button>
+    <button class="tab-button" data-target="tab-revision">⚡ Revision Notes</button>
+</div>
+
+<!-- Lecture Notes -->
+<div id="tab-lecture" class="tab-panel active">
+    <div class="tip-box">Generates well-structured notes organised by sub-topic with cases cited inline — ideal for building your own notes from lectures.</div>
+    <div class="form-group"><label>Topic</label>
+        <input id="ln-topic" type="text" placeholder="e.g. Promissory Estoppel | Vicarious Liability | Mens Rea" />
+    </div>
+    {% include "_doc_multiselect.html" %}
+    <button id="btn-ln" class="btn btn-primary">Generate lecture notes</button>
+    <div id="out-ln" class="output-box"></div>
+    <div class="output-toolbar"><button class="btn btn-secondary btn-sm" id="dl-ln">📥 Download notes</button></div>
+</div>
+
+<!-- Case Table -->
+<div id="tab-table" class="tab-panel">
+    {% if not case_docs %}
+        <div class="notice-box">Upload case law documents to generate a case summary table.</div>
+    {% else %}
+        <div class="tip-box">Produces a Markdown table: Case Name | Court & Year | Key Facts | Ratio | Significance — perfect for revision.</div>
+        <div class="form-group">
+            <label>Select cases (leave empty for all uploaded cases)</label>
+            <div class="multi-select" id="ct-cases">
+                {% for d in case_docs %}<label><input type="checkbox" value="{{ d.doc_id }}" /> {{ d.title }}</label>{% endfor %}
+            </div>
+        </div>
+        <button id="btn-ct" class="btn btn-primary">Generate case table</button>
+        <div id="out-ct" class="output-box"></div>
+        <div class="output-toolbar"><button class="btn btn-secondary btn-sm" id="dl-ct">📥 Download table</button></div>
+    {% endif %}
+</div>
+
+<!-- Topic Overview -->
+<div id="tab-overview" class="tab-panel">
+    <div class="tip-box">Synthesises all uploaded materials into a comprehensive topic overview — principles, leading cases, statutes, academic commentary, and exam focus.</div>
+    <div class="form-group"><label>Topic</label>
+        <input id="to-topic" type="text" placeholder="e.g. Negligence | Contract Formation | Criminal Defences" />
+    </div>
+    {% include "_doc_multiselect.html" %}
+    <button id="btn-to" class="btn btn-primary">Generate topic overview</button>
+    <div id="out-to" class="output-box"></div>
+    <div class="output-toolbar"><button class="btn btn-secondary btn-sm" id="dl-to">📥 Download overview</button></div>
+</div>
+
+<!-- Revision Notes -->
+<div id="tab-revision" class="tab-panel">
+    <div class="tip-box">Concise, exam-ready notes: key test, top 3–5 cases, statute sections, common traps, and an IRAC template for problem questions.</div>
+    <div class="form-group"><label>Topic</label>
+        <input id="rn-topic" type="text" placeholder="e.g. Consideration | Duty of Care | Actus Reus" />
+    </div>
+    {% include "_doc_multiselect.html" %}
+    <button id="btn-rn" class="btn btn-primary">Generate revision notes</button>
+    <div id="out-rn" class="output-box"></div>
+    <div class="output-toolbar"><button class="btn btn-secondary btn-sm" id="dl-rn">📥 Download revision notes</button></div>
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Each tab has its own multi-select via the included partial.
+function tabMultiSelect(tabId) {
+    return document.querySelector(`#${tabId} [data-doc-select]`);
+}
+
+document.getElementById("btn-ln")?.addEventListener("click", async () => {
+    const topic = document.getElementById("ln-topic").value.trim();
+    if (!topic) { toast("Enter a topic", "error"); return; }
+    await runStreaming({
+        url: "/api/notes/lecture",
+        body: { topic, doc_ids: getMultiSelectValues(tabMultiSelect("tab-lecture")) },
+        outputEl: document.getElementById("out-ln"), button: document.getElementById("btn-ln"),
+    });
+});
+document.getElementById("dl-ln")?.addEventListener("click", () => {
+    const t = document.getElementById("ln-topic").value || "notes";
+    downloadText(`${t.replace(/\s+/g,'_')}_notes.md`, document.getElementById("out-ln").innerText);
+});
+
+document.getElementById("btn-ct")?.addEventListener("click", async () => {
+    let ids = getMultiSelectValues(document.getElementById("ct-cases"));
+    if (ids.length === 0) {
+        ids = Array.from(document.querySelectorAll("#ct-cases input")).map(i => i.value);
+    }
+    await runStreaming({
+        url: "/api/notes/table", body: { doc_ids: ids },
+        outputEl: document.getElementById("out-ct"), button: document.getElementById("btn-ct"),
+    });
+});
+document.getElementById("dl-ct")?.addEventListener("click", () =>
+    downloadText("case_summary_table.md", document.getElementById("out-ct").innerText));
+
+document.getElementById("btn-to")?.addEventListener("click", async () => {
+    const topic = document.getElementById("to-topic").value.trim();
+    if (!topic) { toast("Enter a topic", "error"); return; }
+    await runStreaming({
+        url: "/api/notes/overview",
+        body: { topic, doc_ids: getMultiSelectValues(tabMultiSelect("tab-overview")) },
+        outputEl: document.getElementById("out-to"), button: document.getElementById("btn-to"),
+    });
+});
+document.getElementById("dl-to")?.addEventListener("click", () => {
+    const t = document.getElementById("to-topic").value || "topic";
+    downloadText(`${t.replace(/\s+/g,'_')}_overview.md`, document.getElementById("out-to").innerText);
+});
+
+document.getElementById("btn-rn")?.addEventListener("click", async () => {
+    const topic = document.getElementById("rn-topic").value.trim();
+    if (!topic) { toast("Enter a topic", "error"); return; }
+    await runStreaming({
+        url: "/api/notes/revision",
+        body: { topic, doc_ids: getMultiSelectValues(tabMultiSelect("tab-revision")) },
+        outputEl: document.getElementById("out-rn"), button: document.getElementById("btn-rn"),
+    });
+});
+document.getElementById("dl-rn")?.addEventListener("click", () => {
+    const t = document.getElementById("rn-topic").value || "revision";
+    downloadText(`${t.replace(/\s+/g,'_')}_revision.md`, document.getElementById("out-rn").innerText);
+});
+</script>
+{% endblock %}

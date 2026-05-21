@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}NZ Law Assistant{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%9A%96%EF%B8%8F%3C/text%3E%3C/svg%3E" />
+</head>
+<body>
+<div class="app">
+
+    <aside class="sidebar">
+        <h1>⚖️ NZ Law</h1>
+        <div class="subtitle">Study assistant</div>
+
+        {% if project %}
+            <div class="project-pill">
+                <div class="label">Active project</div>
+                <div class="subject">{{ project.subject }}</div>
+            </div>
+            <label for="sidebar-subject" style="color:rgba(255,255,255,.55); font-size:.7rem; text-transform:uppercase; letter-spacing:.06em; font-weight:600;">
+                Current subject / topic
+            </label>
+            <input type="text" id="sidebar-subject" data-project-id="{{ project.id }}"
+                   value="{{ project.subject }}" placeholder="e.g. Contract Law — Offer & Acceptance" />
+        {% else %}
+            <div class="muted" style="color:rgba(255,255,255,.55); font-size:.85rem; margin-bottom:.8rem;">
+                No project open. <br/>Pick one from the home page.
+            </div>
+        {% endif %}
+
+        <div class="section-label">Tools</div>
+        <nav class="nav">
+            <a href="{{ url_for('home') }}" class="{% if request.endpoint == 'home' %}active{% endif %}">🏠 Projects</a>
+            <a href="{{ url_for('documents_page') }}" class="{% if request.endpoint == 'documents_page' %}active{% endif %}">📂 Documents</a>
+            <a href="{{ url_for('case_analysis_page') }}" class="{% if request.endpoint == 'case_analysis_page' %}active{% endif %}">⚖️ Case Analysis</a>
+            <a href="{{ url_for('essay_page') }}" class="{% if request.endpoint == 'essay_page' %}active{% endif %}">✍️ Essay Assistant</a>
+            <a href="{{ url_for('exam_page') }}" class="{% if request.endpoint == 'exam_page' %}active{% endif %}">📝 Exam Practice</a>
+            <a href="{{ url_for('notes_page') }}" class="{% if request.endpoint == 'notes_page' %}active{% endif %}">📓 Notes</a>
+        </nav>
+
+        {% if project %}
+            <div class="section-label">Project</div>
+            <button type="button" class="btn-link" data-action="leave-project">← All projects</button>
+        {% endif %}
+    </aside>
+
+    <main class="main">
+        {% block content %}{% endblock %}
+    </main>
+
+</div>
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>
