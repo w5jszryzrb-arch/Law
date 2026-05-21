@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ topic.name }} · {% if mode == 'learn' %}Learn{% else %}Practice{% endif %} · NZ Law Assistant{% endblock %}
+{% block title %}{{ topic.name }} · {% if mode == 'learn' %}Learn{% elif mode == 'practice' %}Practice{% elif mode == 'assignment' %}Assignment{% else %}Exam{% endif %} · NZ Law Assistant{% endblock %}
 
 {% block content %}
 
@@ -15,6 +15,10 @@
            class="mode-btn {% if mode == 'learn' %}active{% endif %}">📖 Learn</a>
         <a href="{{ url_for('topic_session_page', topic_id=topic.id, mode='practice') }}"
            class="mode-btn {% if mode == 'practice' %}active{% endif %}">📝 Practice</a>
+        <a href="{{ url_for('topic_session_page', topic_id=topic.id, mode='assignment') }}"
+           class="mode-btn {% if mode == 'assignment' %}active{% endif %}">✍️ Assignment</a>
+        <a href="{{ url_for('topic_session_page', topic_id=topic.id, mode='exam_session') }}"
+           class="mode-btn {% if mode == 'exam_session' %}active{% endif %}">🎯 Exam</a>
     </div>
 </div>
 
@@ -33,19 +37,35 @@
     {% endfor %}
 </div>
 
-<!-- Mode description -->
+<!-- Mode tips -->
 {% if mode == 'learn' %}
 <div class="tip-box">
     📖 <strong>Learn mode</strong> — the AI will teach you this topic using only the assigned documents.
     It starts automatically. Type <em>next</em> to move forward, or ask any question at any point.
 </div>
+{% elif mode == 'practice' %}
+<div class="tip-box">
+    📝 <strong>Practice mode</strong> — the AI will generate exam questions from the assigned materials
+    and give IRAC feedback on your answers.
+</div>
+{% elif mode == 'assignment' %}
+<div class="tip-box">
+    ✍️ <strong>Assignment mode</strong> — paste your assignment brief and rubric below, then get
+    personalised coaching: essay plans, draft help, and rubric-calibrated feedback.
+</div>
 {% else %}
 <div class="tip-box">
-    📝 <strong>Practice mode</strong> — the AI will generate exam questions from the assigned materials and give IRAC feedback on your answers. It starts automatically.
+    🎯 <strong>Exam session</strong> — simulated exam conditions using your topic materials.
+    Provide exam instructions and a mark scheme for the most realistic experience.
 </div>
+{% endif %}
+
+<!-- Practice prefs panel -->
 {% if mode == 'practice' %}
-<div id="practice-prefs-panel" class="card" style="margin-bottom:.8rem; {% if saved.history %}display:none;{% endif %}">
-    <label for="practice-prefs" style="margin-bottom:.4rem;">What would you like to practise? <span class="tiny">(optional — leave blank to let the AI choose)</span></label>
+<div id="prefs-panel" class="card" style="margin-bottom:.8rem;{% if saved.history %} display:none;{% endif %}">
+    <label for="practice-prefs" style="margin-bottom:.4rem;">
+        What would you like to practise? <span class="tiny">(optional — leave blank to let the AI choose)</span>
+    </label>
     <input id="practice-prefs" type="text"
            placeholder="e.g. Focus on problem questions | Mix of essay and problems | Only negligence duty of care" />
     <div class="flex-end" style="margin-top:.5rem; gap:.5rem;">
@@ -54,6 +74,105 @@
     </div>
 </div>
 {% endif %}
+
+<!-- Assignment sources panel -->
+{% if mode == 'assignment' %}
+<div id="sources-panel" class="sources-panel" style="{% if saved.history %}display:none;{% endif %}">
+    <div class="sources-panel-head">
+        <span>✍️ Assignment sources</span>
+        <span class="tiny" style="color:var(--text-muted);">Included with every message · all fields optional</span>
+    </div>
+    <div class="sources-panel-body">
+        <div class="form-group">
+            <label for="src-brief">Assignment question / brief</label>
+            <textarea id="src-brief" rows="3"
+                      placeholder="Paste the full assignment question or essay question here..."></textarea>
+        </div>
+        <div class="form-group">
+            <label for="src-rubric">Marking rubric / criteria</label>
+            <textarea id="src-rubric" rows="3"
+                      placeholder="Paste the marking criteria or rubric..."></textarea>
+        </div>
+        <div class="form-group" style="max-width:180px;">
+            <label for="src-word-limit">Word limit</label>
+            <input id="src-word-limit" type="number" min="100" max="20000" placeholder="e.g. 1500" />
+        </div>
+        {% if extra_docs %}
+        <div class="form-group">
+            <label>Additional documents <span class="tiny">(supplementary — topic docs are always included)</span></label>
+            <div class="extra-docs-list" id="extra-docs-list">
+                {% for d in extra_docs %}
+                <label class="extra-doc-check">
+                    <input type="checkbox" class="extra-doc-cb" value="{{ d.doc_id }}" />
+                    {{ d.title }} <span class="tiny">({{ doc_type_labels.get(d.doc_type, d.doc_type) }})</span>
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        <div class="sources-panel-actions" id="sources-start-btns">
+            <button id="btn-start-sources" class="btn btn-primary">Start assignment session →</button>
+            <button id="btn-skip-sources" class="btn btn-ghost btn-sm">Skip — just start</button>
+        </div>
+        <div class="sources-panel-actions" id="sources-update-btns" style="display:none;">
+            <button id="btn-update-sources" class="btn btn-secondary btn-sm">Update sources</button>
+        </div>
+    </div>
+</div>
+<button id="btn-edit-sources" class="btn btn-ghost btn-sm sources-edit-toggle"
+        style="{% if not saved.history %}display:none;{% endif %} margin-bottom:.6rem;">
+    📋 Edit sources ↓
+</button>
+{% endif %}
+
+<!-- Exam session sources panel -->
+{% if mode == 'exam_session' %}
+<div id="sources-panel" class="sources-panel" style="{% if saved.history %}display:none;{% endif %}">
+    <div class="sources-panel-head">
+        <span>🎯 Exam sources</span>
+        <span class="tiny" style="color:var(--text-muted);">Included with every message · all fields optional</span>
+    </div>
+    <div class="sources-panel-body">
+        <div class="form-group">
+            <label for="src-instructions">Exam instructions</label>
+            <textarea id="src-instructions" rows="2"
+                      placeholder="e.g. Answer 2 of 3 questions. Each worth 25 marks. 45 minutes per question."></textarea>
+        </div>
+        <div class="form-group">
+            <label for="src-mark-scheme">Mark scheme / examiner notes</label>
+            <textarea id="src-mark-scheme" rows="3"
+                      placeholder="Paste the mark scheme or any examiner notes..."></textarea>
+        </div>
+        <div class="form-group" style="max-width:200px;">
+            <label for="src-time">Time per question (minutes)</label>
+            <input id="src-time" type="number" min="5" max="180" placeholder="e.g. 45" />
+        </div>
+        {% if extra_docs %}
+        <div class="form-group">
+            <label>Additional documents <span class="tiny">(supplementary — topic docs are always included)</span></label>
+            <div class="extra-docs-list" id="extra-docs-list">
+                {% for d in extra_docs %}
+                <label class="extra-doc-check">
+                    <input type="checkbox" class="extra-doc-cb" value="{{ d.doc_id }}" />
+                    {{ d.title }} <span class="tiny">({{ doc_type_labels.get(d.doc_type, d.doc_type) }})</span>
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        <div class="sources-panel-actions" id="sources-start-btns">
+            <button id="btn-start-sources" class="btn btn-primary">Start exam session →</button>
+            <button id="btn-skip-sources" class="btn btn-ghost btn-sm">Skip — just start</button>
+        </div>
+        <div class="sources-panel-actions" id="sources-update-btns" style="display:none;">
+            <button id="btn-update-sources" class="btn btn-secondary btn-sm">Update sources</button>
+        </div>
+    </div>
+</div>
+<button id="btn-edit-sources" class="btn btn-ghost btn-sm sources-edit-toggle"
+        style="{% if not saved.history %}display:none;{% endif %} margin-bottom:.6rem;">
+    📋 Edit sources ↓
+</button>
 {% endif %}
 
 <!-- Chat thread -->
@@ -68,17 +187,31 @@
         <button class="shortcut-btn" data-msg="explain more">Explain more</button>
         <button class="shortcut-btn" data-msg="give me a case example from the materials">Case example</button>
     </div>
-    {% else %}
+    {% elif mode == 'practice' %}
     <div class="session-shortcuts">
         <button class="shortcut-btn" data-msg="next question">Next question →</button>
         <button class="shortcut-btn" data-msg="give me a hint">Hint</button>
         <button class="shortcut-btn" data-msg="show me the model answer">Model answer</button>
         <button class="shortcut-btn" data-msg="make it harder">Make it harder</button>
     </div>
+    {% elif mode == 'assignment' %}
+    <div class="session-shortcuts">
+        <button class="shortcut-btn" data-msg="help me plan my answer">Plan my answer</button>
+        <button class="shortcut-btn" data-msg="draft an introduction">Draft intro</button>
+        <button class="shortcut-btn" data-msg="critique my draft">Critique draft</button>
+        <button class="shortcut-btn" data-msg="check my citations">Check citations</button>
+    </div>
+    {% else %}
+    <div class="session-shortcuts">
+        <button class="shortcut-btn" data-msg="next question">Next question →</button>
+        <button class="shortcut-btn" data-msg="I've finished my answer — please mark it">Submit answer</button>
+        <button class="shortcut-btn" data-msg="show me the model answer">Model answer</button>
+        <button class="shortcut-btn" data-msg="how am I doing overall?">My progress</button>
+    </div>
     {% endif %}
     <div class="chat-input-row" style="margin-top:.4rem;">
         <textarea id="session-input"
-                  placeholder="{% if mode == 'learn' %}Ask a question or type 'next' to move forward...{% else %}Type your answer here...{% endif %}"
+                  placeholder="{% if mode == 'learn' %}Ask a question or type 'next' to move forward...{% elif mode == 'practice' %}Type your answer here...{% elif mode == 'assignment' %}Ask for help, paste a draft paragraph, or type your answer...{% else %}Type your answer here...{% endif %}"
                   rows="3"></textarea>
         <button id="session-send" class="btn btn-primary">Send</button>
     </div>
@@ -89,25 +222,103 @@
 </div>
 
 {% endif %}
-
 {% endblock %}
 
 {% block scripts %}
 <script>
-const TOPIC_ID = {{ topic.id | tojson }};
+const TOPIC_ID   = {{ topic.id | tojson }};
 const TOPIC_NAME = {{ topic.name | tojson }};
-const MODE = {{ mode | tojson }};
-const SAVED_KEY = {{ saved_key | tojson }};
-const SAVED = {{ saved | tojson }};
+const MODE       = {{ mode | tojson }};
+const SAVED_KEY  = {{ saved_key | tojson }};
+const SAVED      = {{ saved | tojson }};
 const PROJECT_ID = {{ (project.id if project else None) | tojson }};
 
-let history = SAVED.history || [];
-let sessionStarted = !!(SAVED.history && SAVED.history.length > 0);
+const API_URL = {
+    learn:        `/api/topics/${TOPIC_ID}/learn`,
+    practice:     `/api/topics/${TOPIC_ID}/practice`,
+    assignment:   `/api/topics/${TOPIC_ID}/assignment`,
+    exam_session: `/api/topics/${TOPIC_ID}/exam-session`,
+}[MODE];
 
-const thread = document.getElementById("session-thread");
+let history       = SAVED.history || [];
+let sources       = SAVED.sources || {};
+let sessionStarted = !!(history.length);
+
+const thread  = document.getElementById("session-thread");
 const inputEl = document.getElementById("session-input");
 const sendBtn = document.getElementById("session-send");
-const API_URL = MODE === "learn" ? `/api/topics/${TOPIC_ID}/learn` : `/api/topics/${TOPIC_ID}/practice`;
+
+// ── Sources helpers ───────────────────────────────────────────────────────────
+function collectSources() {
+    if (MODE === "assignment") {
+        sources.brief       = (document.getElementById("src-brief")      || {value: ""}).value;
+        sources.rubric      = (document.getElementById("src-rubric")     || {value: ""}).value;
+        sources.word_limit  = parseInt((document.getElementById("src-word-limit") || {value:""}).value) || 0;
+    } else if (MODE === "exam_session") {
+        sources.instructions     = (document.getElementById("src-instructions") || {value: ""}).value;
+        sources.mark_scheme      = (document.getElementById("src-mark-scheme")  || {value: ""}).value;
+        sources.time_per_question = parseInt((document.getElementById("src-time") || {value:""}).value) || 0;
+    }
+    sources.extra_doc_ids = [];
+    document.querySelectorAll(".extra-doc-cb:checked").forEach(cb => {
+        sources.extra_doc_ids.push(cb.value);
+    });
+}
+
+function populateSources() {
+    if (MODE === "assignment") {
+        if (sources.brief      && document.getElementById("src-brief"))      document.getElementById("src-brief").value      = sources.brief;
+        if (sources.rubric     && document.getElementById("src-rubric"))     document.getElementById("src-rubric").value     = sources.rubric;
+        if (sources.word_limit && document.getElementById("src-word-limit")) document.getElementById("src-word-limit").value = sources.word_limit;
+    } else if (MODE === "exam_session") {
+        if (sources.instructions      && document.getElementById("src-instructions")) document.getElementById("src-instructions").value = sources.instructions;
+        if (sources.mark_scheme       && document.getElementById("src-mark-scheme"))  document.getElementById("src-mark-scheme").value  = sources.mark_scheme;
+        if (sources.time_per_question && document.getElementById("src-time"))         document.getElementById("src-time").value          = sources.time_per_question;
+    }
+    if (sources.extra_doc_ids && sources.extra_doc_ids.length) {
+        document.querySelectorAll(".extra-doc-cb").forEach(cb => {
+            cb.checked = sources.extra_doc_ids.includes(cb.value);
+        });
+    }
+}
+
+function sourcesBody() {
+    if (MODE === "assignment") {
+        return {
+            brief:          sources.brief || "",
+            rubric:         sources.rubric || "",
+            word_limit:     sources.word_limit || 0,
+            extra_doc_ids:  sources.extra_doc_ids || [],
+        };
+    }
+    if (MODE === "exam_session") {
+        return {
+            instructions:      sources.instructions || "",
+            mark_scheme:       sources.mark_scheme || "",
+            time_per_question: sources.time_per_question || 0,
+            extra_doc_ids:     sources.extra_doc_ids || [],
+        };
+    }
+    return {};
+}
+
+function hideSources() {
+    const panel   = document.getElementById("sources-panel");
+    const editBtn = document.getElementById("btn-edit-sources");
+    const startBtns  = document.getElementById("sources-start-btns");
+    const updateBtns = document.getElementById("sources-update-btns");
+    if (panel)      panel.style.display    = "none";
+    if (editBtn)    editBtn.style.display  = "";
+    if (startBtns)  startBtns.style.display  = "none";
+    if (updateBtns) updateBtns.style.display = "";
+}
+
+function showSources() {
+    const panel   = document.getElementById("sources-panel");
+    const editBtn = document.getElementById("btn-edit-sources");
+    if (panel)   panel.style.display   = "";
+    if (editBtn) editBtn.style.display = "none";
+}
 
 // ── Render history ────────────────────────────────────────────────────────────
 function renderHistory() {
@@ -125,7 +336,6 @@ function appendMessage(role, content, scroll = true) {
     if (existing) existing.remove();
     const el = document.createElement("div");
     el.className = `session-msg ${role}`;
-    // Light markdown for assistant messages
     if (role === "assistant") {
         el.innerHTML = simpleMarkdown(content);
     } else {
@@ -137,11 +347,11 @@ function appendMessage(role, content, scroll = true) {
 }
 
 function simpleMarkdown(text) {
-    const escaped = text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-    return escaped
+    const e = text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    return e
         .replace(/^### (.+)$/gm, "<h3>$1</h3>")
-        .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-        .replace(/^# (.+)$/gm, "<h1>$1</h1>")
+        .replace(/^## (.+)$/gm,  "<h2>$1</h2>")
+        .replace(/^# (.+)$/gm,   "<h1>$1</h1>")
         .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
         .replace(/\*([^*\n]+)\*/g, "<em>$1</em>")
         .replace(/`([^`]+)`/g, "<code>$1</code>")
@@ -149,12 +359,15 @@ function simpleMarkdown(text) {
 }
 
 function saveSession() {
-    saveConversation(SAVED_KEY, { history });
+    const data = { history };
+    if (MODE === "assignment" || MODE === "exam_session") data.sources = sources;
+    saveConversation(SAVED_KEY, data);
 }
 
 // ── Send a message ────────────────────────────────────────────────────────────
 async function sendMessage(msg) {
     if (!msg.trim()) return;
+    if (MODE === "assignment" || MODE === "exam_session") collectSources();
     history.push({ role: "user", content: msg });
     appendMessage("user", msg);
     inputEl.value = "";
@@ -167,6 +380,7 @@ async function sendMessage(msg) {
     const body = {
         message: msg,
         history: history.slice(0, -1),
+        ...sourcesBody(),
     };
 
     try {
@@ -189,19 +403,17 @@ async function sendMessage(msg) {
 }
 
 // ── Auto-start (no history) ───────────────────────────────────────────────────
-async function autoStart(preferences) {
+async function autoStart(extraBody) {
     thread.innerHTML = '<div class="session-empty">Starting session…</div>';
     sendBtn.disabled = true;
     sendBtn.innerHTML = '<span class="spinner"></span>';
 
     const assistantEl = appendMessage("assistant", "");
     assistantEl.innerHTML = '<span class="spinner dark"></span>';
-    // Remove "starting" placeholder
     const placeholder = thread.querySelector(".session-empty");
     if (placeholder) placeholder.remove();
 
-    const body = { start: true };
-    if (preferences) body.preferences = preferences;
+    const body = { start: true, ...sourcesBody(), ...(extraBody || {}) };
 
     try {
         const full = await streamPost(API_URL, body,
@@ -212,6 +424,8 @@ async function autoStart(preferences) {
         );
         assistantEl.innerHTML = simpleMarkdown(full);
         history.push({ role: "assistant", content: full });
+        sessionStarted = true;
+        if (MODE === "assignment" || MODE === "exam_session") hideSources();
         saveSession();
     } catch (e) {
         assistantEl.innerHTML = `<span style="color:var(--red);">Error: ${e.message}</span>`;
@@ -236,41 +450,78 @@ document.getElementById("clear-session").addEventListener("click", () => {
     sessionStarted = false;
     thread.innerHTML = "";
     saveSession();
-    // Restart
+
     if (MODE === "practice") {
-        const prefsPanel = document.getElementById("practice-prefs-panel");
+        const prefsPanel = document.getElementById("prefs-panel");
         if (prefsPanel) prefsPanel.style.display = "";
+    } else if (MODE === "assignment" || MODE === "exam_session") {
+        showSources();
+        // Swap back to start buttons
+        const startBtns  = document.getElementById("sources-start-btns");
+        const updateBtns = document.getElementById("sources-update-btns");
+        if (startBtns)  startBtns.style.display  = "";
+        if (updateBtns) updateBtns.style.display = "none";
     } else {
         autoStart();
     }
 });
 
-// Practice prefs panel
+// Practice prefs
 const startPrefBtn = document.getElementById("btn-start-pref");
-const skipPrefBtn = document.getElementById("btn-skip-pref");
+const skipPrefBtn  = document.getElementById("btn-skip-pref");
 if (startPrefBtn) {
     startPrefBtn.addEventListener("click", () => {
-        document.getElementById("practice-prefs-panel").style.display = "none";
-        autoStart(document.getElementById("practice-prefs").value);
+        document.getElementById("prefs-panel").style.display = "none";
+        autoStart({ preferences: document.getElementById("practice-prefs").value });
     });
 }
 if (skipPrefBtn) {
     skipPrefBtn.addEventListener("click", () => {
-        document.getElementById("practice-prefs-panel").style.display = "none";
+        document.getElementById("prefs-panel").style.display = "none";
         autoStart();
     });
 }
 
+// Assignment / Exam sources
+const startSrcBtn  = document.getElementById("btn-start-sources");
+const skipSrcBtn   = document.getElementById("btn-skip-sources");
+const updateSrcBtn = document.getElementById("btn-update-sources");
+const editSrcBtn   = document.getElementById("btn-edit-sources");
+
+if (startSrcBtn) {
+    startSrcBtn.addEventListener("click", () => {
+        collectSources();
+        autoStart();
+    });
+}
+if (skipSrcBtn) {
+    skipSrcBtn.addEventListener("click", () => autoStart());
+}
+if (updateSrcBtn) {
+    updateSrcBtn.addEventListener("click", () => {
+        collectSources();
+        saveSession();
+        hideSources();
+        toast("Sources updated — changes apply to your next message", "success");
+    });
+}
+if (editSrcBtn) {
+    editSrcBtn.addEventListener("click", () => showSources());
+}
+
 // ── Init on load ──────────────────────────────────────────────────────────────
+if (MODE === "assignment" || MODE === "exam_session") populateSources();
+
 if (history.length > 0) {
-    // Restore saved session
     renderHistory();
+    if (MODE === "assignment" || MODE === "exam_session") hideSources();
 } else if (MODE === "learn") {
-    // Learn starts automatically
     autoStart();
 } else if (MODE === "practice") {
-    // Practice shows prefs panel first (already visible by default)
-    thread.innerHTML = '<div class="session-empty">Choose your preferences above, or click <em>Skip</em> to start straight away.</div>';
+    thread.innerHTML = '<div class="session-empty">Choose your preferences above, or click <em>Skip</em> to start.</div>';
+} else {
+    // assignment or exam_session — sources panel is shown, wait for user to start
+    thread.innerHTML = '<div class="session-empty">Configure the sources above, then click <em>Start</em>.</div>';
 }
 </script>
 {% endblock %}

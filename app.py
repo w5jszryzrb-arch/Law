@@ -490,19 +490,23 @@ def topics_page():
 
 @app.route("/topics/<topic_id>/session")
 def topic_session_page(topic_id: str):
+    vs, *_ = services()
     topic = sm.get_topic(topic_id)
     if not topic:
         abort(404)
     topic_docs = sm.get_topic_docs(topic_id)
+    all_docs = vs.list_documents()
     mode = request.args.get("mode", "learn")
-    # Load saved session history for this topic+mode
     saved_key = f"topic_{topic_id}_{mode}"
     saved = (sm.load_conversation(session["project_id"], saved_key)
              if session.get("project_id") else {})
+    topic_doc_ids = {d["doc_id"] for d in topic_docs}
+    extra_docs = [d for d in all_docs if d["doc_id"] not in topic_doc_ids]
     return render_template(
         "topic_session.html",
         topic=topic,
         topic_docs=topic_docs,
+        extra_docs=extra_docs,
         mode=mode,
         saved=saved,
         saved_key=saved_key,
@@ -594,6 +598,62 @@ def api_topic_practice(tid: str):
         message=payload.get("message", ""),
         history=payload.get("history") or [],
         topic_name=topic["name"], doc_ids=doc_ids, current_subject=subject,
+    ))
+
+
+@app.post("/api/topics/<tid>/assignment")
+def api_topic_assignment(tid: str):
+    *_, tutor = services()
+    topic = sm.get_topic(tid)
+    if not topic:
+        abort(404)
+    payload = request.get_json(silent=True) or {}
+    doc_ids = [d["doc_id"] for d in sm.get_topic_docs(tid)]
+    subject = (current_project() or {}).get("subject", "")
+    extra_doc_ids = payload.get("extra_doc_ids") or []
+    kwargs = dict(
+        topic_name=topic["name"],
+        doc_ids=doc_ids,
+        brief=payload.get("brief", ""),
+        rubric=payload.get("rubric", ""),
+        word_limit=int(payload.get("word_limit") or 0),
+        extra_doc_ids=extra_doc_ids,
+        current_subject=subject,
+    )
+    if payload.get("start"):
+        return stream_response(tutor.start_assignment(**kwargs))
+    return stream_response(tutor.assignment_chat(
+        message=payload.get("message", ""),
+        history=payload.get("history") or [],
+        **kwargs,
+    ))
+
+
+@app.post("/api/topics/<tid>/exam-session")
+def api_topic_exam_session(tid: str):
+    *_, tutor = services()
+    topic = sm.get_topic(tid)
+    if not topic:
+        abort(404)
+    payload = request.get_json(silent=True) or {}
+    doc_ids = [d["doc_id"] for d in sm.get_topic_docs(tid)]
+    subject = (current_project() or {}).get("subject", "")
+    extra_doc_ids = payload.get("extra_doc_ids") or []
+    kwargs = dict(
+        topic_name=topic["name"],
+        doc_ids=doc_ids,
+        instructions=payload.get("instructions", ""),
+        mark_scheme=payload.get("mark_scheme", ""),
+        time_per_question=int(payload.get("time_per_question") or 0),
+        extra_doc_ids=extra_doc_ids,
+        current_subject=subject,
+    )
+    if payload.get("start"):
+        return stream_response(tutor.start_exam_session(**kwargs))
+    return stream_response(tutor.exam_session_chat(
+        message=payload.get("message", ""),
+        history=payload.get("history") or [],
+        **kwargs,
     ))
 
 

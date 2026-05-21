@@ -1,7 +1,12 @@
 from typing import Generator, Optional
 
 import config
-from src.prompts import LEARN_MODE_PROMPT, PRACTICE_SESSION_PROMPT
+from src.prompts import (
+    ASSIGNMENT_SESSION_PROMPT,
+    EXAM_SESSION_PROMPT,
+    LEARN_MODE_PROMPT,
+    PRACTICE_SESSION_PROMPT,
+)
 from src.rag_pipeline import RAGPipeline
 from src.vector_store import RetrievedChunk
 
@@ -119,4 +124,138 @@ class TopicTutor:
             history=history,
             chunks=chunks,
             current_subject=f"Topic: {topic_name}" + (f" | {current_subject}" if current_subject else ""),
+        )
+
+    # ── Assignment mode ──────────────────────────────────────────────────────
+
+    def _build_assignment_context(self, brief: str, rubric: str, word_limit: int) -> str:
+        parts = []
+        if brief.strip():
+            parts.append(f"Assignment Brief:\n{brief.strip()}")
+        if rubric.strip():
+            parts.append(f"Marking Rubric:\n{rubric.strip()}")
+        if word_limit:
+            parts.append(f"Word Limit: {word_limit} words")
+        return "\n\n".join(parts)
+
+    def start_assignment(
+        self,
+        topic_name: str,
+        doc_ids: list[str],
+        brief: str = "",
+        rubric: str = "",
+        word_limit: int = 0,
+        extra_doc_ids: Optional[list[str]] = None,
+        current_subject: str = "",
+    ) -> Generator[str, None, None]:
+        all_ids = list(doc_ids) + (extra_doc_ids or [])
+        if brief.strip():
+            query = (
+                f"Begin an assignment coaching session on '{topic_name}'. "
+                "Read the assignment brief and rubric carefully. "
+                "Identify all legal issues to address, explain what a top-mark answer looks like "
+                "based on the rubric, and propose an essay plan with issue headings and key authorities."
+            )
+        else:
+            query = (
+                f"Begin an assignment coaching session on '{topic_name}'. "
+                "No assignment brief has been provided yet. "
+                "Introduce yourself as the assignment coach and ask the student to paste their question."
+            )
+        chunks = self._get_topic_chunks(query, all_ids, n_results=12)
+        extra_ctx = self._build_assignment_context(brief, rubric, word_limit)
+        return self.pipeline.claude.stream(
+            system_prompt=ASSIGNMENT_SESSION_PROMPT,
+            user_query=query,
+            history=[],
+            chunks=chunks,
+            current_subject=f"Topic: {topic_name}" + (f" | {current_subject}" if current_subject else ""),
+            rubric=extra_ctx,
+        )
+
+    def assignment_chat(
+        self,
+        message: str,
+        history: list[dict],
+        topic_name: str,
+        doc_ids: list[str],
+        brief: str = "",
+        rubric: str = "",
+        word_limit: int = 0,
+        extra_doc_ids: Optional[list[str]] = None,
+        current_subject: str = "",
+    ) -> Generator[str, None, None]:
+        all_ids = list(doc_ids) + (extra_doc_ids or [])
+        chunks = self._get_topic_chunks(message, all_ids, n_results=10)
+        extra_ctx = self._build_assignment_context(brief, rubric, word_limit)
+        return self.pipeline.claude.stream(
+            system_prompt=ASSIGNMENT_SESSION_PROMPT,
+            user_query=message,
+            history=history,
+            chunks=chunks,
+            current_subject=f"Topic: {topic_name}" + (f" | {current_subject}" if current_subject else ""),
+            rubric=extra_ctx,
+        )
+
+    # ── Exam session mode ────────────────────────────────────────────────────
+
+    def _build_exam_context(self, instructions: str, mark_scheme: str, time_per_question: int) -> str:
+        parts = []
+        if instructions.strip():
+            parts.append(f"Exam Instructions:\n{instructions.strip()}")
+        if mark_scheme.strip():
+            parts.append(f"Mark Scheme:\n{mark_scheme.strip()}")
+        if time_per_question:
+            parts.append(f"Time per question: {time_per_question} minutes")
+        return "\n\n".join(parts)
+
+    def start_exam_session(
+        self,
+        topic_name: str,
+        doc_ids: list[str],
+        instructions: str = "",
+        mark_scheme: str = "",
+        time_per_question: int = 0,
+        extra_doc_ids: Optional[list[str]] = None,
+        current_subject: str = "",
+    ) -> Generator[str, None, None]:
+        all_ids = list(doc_ids) + (extra_doc_ids or [])
+        query = (
+            f"Begin a simulated exam session on '{topic_name}'. "
+            "Confirm the exam conditions with the student, then generate the first practice exam "
+            "question based ONLY on the uploaded course materials, matching the exam format provided."
+        )
+        chunks = self._get_topic_chunks(query, all_ids, n_results=12)
+        extra_ctx = self._build_exam_context(instructions, mark_scheme, time_per_question)
+        return self.pipeline.claude.stream(
+            system_prompt=EXAM_SESSION_PROMPT,
+            user_query=query,
+            history=[],
+            chunks=chunks,
+            current_subject=f"Topic: {topic_name}" + (f" | {current_subject}" if current_subject else ""),
+            rubric=extra_ctx,
+        )
+
+    def exam_session_chat(
+        self,
+        message: str,
+        history: list[dict],
+        topic_name: str,
+        doc_ids: list[str],
+        instructions: str = "",
+        mark_scheme: str = "",
+        time_per_question: int = 0,
+        extra_doc_ids: Optional[list[str]] = None,
+        current_subject: str = "",
+    ) -> Generator[str, None, None]:
+        all_ids = list(doc_ids) + (extra_doc_ids or [])
+        chunks = self._get_topic_chunks(message, all_ids, n_results=10)
+        extra_ctx = self._build_exam_context(instructions, mark_scheme, time_per_question)
+        return self.pipeline.claude.stream(
+            system_prompt=EXAM_SESSION_PROMPT,
+            user_query=message,
+            history=history,
+            chunks=chunks,
+            current_subject=f"Topic: {topic_name}" + (f" | {current_subject}" if current_subject else ""),
+            rubric=extra_ctx,
         )
