@@ -24,6 +24,7 @@ COLLECTIONS = {
     "instruction": "instruction",
     "past_paper": "past_paper",
     "workshop_question": "workshop_question",
+    "marked_script": "marked_script",
     "statute": "statute",
     "other": "other",
 }
@@ -35,6 +36,7 @@ DOC_TYPE_LABELS = {
     "instruction": "Assignment / Instructions",
     "past_paper": "Past Exam Paper",
     "workshop_question": "Workshop / Tutorial Questions",
+    "marked_script": "Marked Exam Script",
     "statute": "Statute / Legislation",
     "other": "Other",
 }

@@ -167,6 +167,7 @@ def exam_page():
     all_docs = vs.list_documents()
     past_paper_docs = [d for d in all_docs if d["doc_type"] == "past_paper"]
     workshop_docs = [d for d in all_docs if d["doc_type"] == "workshop_question"]
+    marked_script_docs = [d for d in all_docs if d["doc_type"] == "marked_script"]
     course_docs_count = sum(
         1 for d in all_docs
         if d["doc_type"] in ("case_law", "lecture", "statute", "article")
@@ -178,6 +179,7 @@ def exam_page():
         all_docs=all_docs,
         past_paper_docs=past_paper_docs,
         workshop_docs=workshop_docs,
+        marked_script_docs=marked_script_docs,
         course_docs_count=course_docs_count,
         saved=saved,
         **common_context(),
@@ -429,6 +431,10 @@ def api_exam(action: str):
                 "and how they compare to typical exam questions."
             ),
             mode="exam", chunks=chunks, current_subject=subject,
+        ))
+    if action == "analyse-script":
+        return stream_response(exam.analyse_marked_script(
+            doc_id=payload["doc_id"], current_subject=subject,
         ))
     abort(404)
 

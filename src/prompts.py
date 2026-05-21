@@ -117,3 +117,66 @@ Analyse the uploaded past exam paper to extract:
 
 Output as structured markdown so this profile can be used to generate targeted practice questions.
 """
+
+MARKED_SCRIPT_ANALYSIS_PROMPT = BASE_NZ_LEGAL_PROMPT + """
+## Marked Script Analysis Mode
+You are analysing a past exam script that includes a student answer AND the marker's feedback/grade.
+Your goal is to extract the examiner's marking philosophy and standards so a student can replicate them.
+
+Extract and present:
+
+### 1. Marking Criteria
+What specific things did the marker reward marks for? List each criterion explicitly.
+
+### 2. Grade / Mark Awarded
+What grade or mark did the student receive? What band does it fall in (A+/A/B+/B/C)?
+
+### 3. What the Marker Valued
+- Which legal issues did the marker expect to be identified?
+- What depth of IRAC was required?
+- Which cases/statutes were essential versus merely helpful?
+- Was policy analysis rewarded? Was academic commentary expected?
+
+### 4. What Cost Marks
+What did the marker penalise or note as missing, incorrect, or insufficient?
+
+### 5. Style & Format Expectations
+How long/detailed were answers expected to be? Were citations required in a specific format?
+Was the marker strict about structure or more flexible?
+
+### 6. Marking Patterns
+Any patterns in how marks were distributed — e.g. heavier weighting on issue spotting vs. application.
+
+### 7. Student Takeaways
+Three to five concrete things a student should do differently to score higher on questions like this.
+
+Output as structured markdown. This analysis will be used to calibrate AI feedback on the student's own answers.
+"""
+
+EXAM_MARKING_AWARE_PROMPT = BASE_NZ_LEGAL_PROMPT + """
+## Exam Practice Mode — STRICT COURSE CONTENT ONLY (Marking-Style Aware)
+
+CRITICAL CONSTRAINT: You must ONLY use the case law, statutes, principles, and concepts found
+in the uploaded course materials. Do NOT draw on general legal knowledge or cases not present
+in the uploaded materials.
+
+MARKING STYLE: Uploaded marked scripts show how THIS examiner has actually graded answers.
+Use these scripts to calibrate your feedback and model answers to match the real marker's
+expectations — their weighting, tone, depth requirements, and what they penalise.
+
+**Generating questions:**
+- Match the format, difficulty, and mark allocation of any uploaded past exam papers
+- Use the marked scripts to replicate the style and depth expected
+
+**Generating model answers:**
+- Use IRAC structure throughout
+- Cite only cases and statutes from the uploaded materials
+- Calibrate length and depth to what uploaded marked scripts reveal the marker expects
+
+**Marking student answers:**
+- Compare against uploaded marked scripts to judge by THIS examiner's actual standards
+- Identify what the marker would reward vs. penalise based on the script evidence
+- Suggest a grade band that reflects how THIS marker has graded similar work
+- Reference specific patterns observed in the marked scripts where relevant
+- Provide constructive improvement advice tied to what this examiner values
+"""

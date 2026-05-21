@@ -14,8 +14,14 @@
     <div class="metric"><div class="label">Course docs</div><div class="value">{{ course_docs_count }}</div></div>
     <div class="metric"><div class="label">Past papers</div><div class="value">{{ past_paper_docs|length }}</div></div>
     <div class="metric"><div class="label">Workshop Qs</div><div class="value">{{ workshop_docs|length }}</div></div>
-    <div class="metric"><div class="label">Total docs</div><div class="value">{{ all_docs|length }}</div></div>
+    <div class="metric"><div class="label">Marked scripts</div><div class="value">{{ marked_script_docs|length }}</div></div>
 </div>
+{% if marked_script_docs %}
+<div class="notice-box" style="background:#F0FDF4; border-color:#86EFAC; border-left-color:#15803D; color:#14532D;">
+    🎯 <strong>Marking style active</strong> — {{ marked_script_docs|length }} marked script{{ 's' if marked_script_docs|length != 1 else '' }} uploaded.
+    Feedback will be calibrated to how your actual examiner marks.
+</div>
+{% endif %}
 
 {% if not all_docs %}<div class="notice-box">⚠️ Upload course materials in <a href="{{ url_for('documents_page') }}">Documents</a> before generating practice questions.</div>{% endif %}
 
@@ -27,6 +33,7 @@
     <button class="tab-button" data-target="tab-mark">✏️ Mark My Answer</button>
     <button class="tab-button" data-target="tab-past">📄 Past Papers</button>
     <button class="tab-button" data-target="tab-ws">📚 Workshop Questions</button>
+    <button class="tab-button" data-target="tab-scripts">🎯 Marked Scripts</button>
 </div>
 
 <!-- Generate -->
@@ -123,6 +130,59 @@
                     </div>
                     <button class="btn btn-secondary btn-sm" data-analyse-pp="{{ d.doc_id }}" data-title="{{ d.title }}" style="margin-top:.5rem;">Analyse</button>
                     <div class="output-box" id="pp-out-{{ d.doc_id }}" style="display:none;"></div>
+                </div>
+                {% endfor %}
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Marked Scripts -->
+<div id="tab-scripts" class="tab-panel">
+    <div class="tip-box">
+        🎯 <strong>What is a marked script?</strong> Upload a past exam script that includes both the student's answer
+        <em>and</em> the marker's feedback, comments, or grade. The AI will learn exactly how your examiner marks —
+        what they reward, what they penalise, and what grade band they assign — so feedback on your own answers
+        is calibrated to your real examiner's standards.
+    </div>
+    <div class="row" style="grid-template-columns: 3fr 2fr;">
+        <div>
+            <h3>Upload marked exam scripts</h3>
+            <p class="muted">Upload PDFs or text files containing a student answer <strong>with</strong> the marker's written feedback, annotations, or grading notes.</p>
+            <div class="dropzone" id="ms-dropzone">
+                <input type="file" id="ms-file" multiple accept=".pdf,.txt" />
+                <div class="icon">🎯</div>
+                <div class="text">Click to upload marked script(s)</div>
+            </div>
+            <div id="ms-config" style="display:none; margin-top:.6rem;">
+                <div id="ms-rows"></div>
+                <button id="ms-upload" class="btn btn-primary btn-block" style="margin-top:.5rem;">⬆️ Upload marked scripts</button>
+            </div>
+            <div id="ms-progress"></div>
+
+            <div class="notice-box" style="margin-top:1rem;">
+                <strong>How it improves marking feedback:</strong><br />
+                Once uploaded, the <em>Mark My Answer</em> tab will automatically detect these scripts
+                and calibrate all feedback to match how this examiner has actually graded in the past.
+                No extra steps required.
+            </div>
+        </div>
+        <div>
+            <h3>Uploaded marked scripts</h3>
+            {% if not marked_script_docs %}
+                <div class="empty">
+                    <div class="icon" style="font-size:1.8rem;">📋</div>
+                    <div class="sub">No marked scripts yet</div>
+                </div>
+            {% else %}
+                {% for d in marked_script_docs %}
+                <div class="card" style="margin-bottom:.5rem;">
+                    <div class="card-row">
+                        <strong>{{ d.title }}</strong>
+                        <button class="btn btn-danger btn-sm" data-delete-doc="{{ d.doc_id }}" data-collection="{{ d.collection }}">🗑</button>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" data-analyse-script="{{ d.doc_id }}" style="margin-top:.5rem;">Analyse marking style</button>
+                    <div class="output-box" id="ms-out-{{ d.doc_id }}" style="display:none; margin-top:.5rem;"></div>
                 </div>
                 {% endfor %}
             {% endif %}
@@ -304,5 +364,19 @@ function setupTypedDropzone(prefix, docType) {
 }
 setupTypedDropzone("pp", "past_paper");
 setupTypedDropzone("ws", "workshop_question");
+setupTypedDropzone("ms", "marked_script");
+
+// Marked script analyse
+document.querySelectorAll("[data-analyse-script]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+        const id = btn.dataset.analyseScript;
+        const out = document.getElementById(`ms-out-${id}`);
+        out.style.display = "block";
+        await runStreaming({
+            url: "/api/exam/analyse-script", body: { doc_id: id },
+            outputEl: out, button: btn,
+        });
+    });
+});
 </script>
 {% endblock %}

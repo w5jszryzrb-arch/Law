@@ -1,7 +1,10 @@
 from typing import Generator, Optional
 
 import config
-from src.prompts import EXAM_PROMPT, PAST_PAPER_ANALYSIS_PROMPT
+from src.prompts import (
+    EXAM_MARKING_AWARE_PROMPT, EXAM_PROMPT, MARKED_SCRIPT_ANALYSIS_PROMPT,
+    PAST_PAPER_ANALYSIS_PROMPT,
+)
 from src.rag_pipeline import RAGPipeline
 from src.vector_store import RetrievedChunk
 
@@ -11,13 +14,14 @@ class ExamPractice:
         self.pipeline = pipeline
 
     def _get_exam_chunks(self, doc_ids: Optional[list[str]] = None) -> list[RetrievedChunk]:
-        """Retrieve all available exam-relevant chunks, including past papers."""
+        """Retrieve all available exam-relevant chunks, including past papers and marked scripts."""
         collections = [
             config.COLLECTIONS["case_law"],
             config.COLLECTIONS["lecture"],
             config.COLLECTIONS["statute"],
             config.COLLECTIONS["article"],
             config.COLLECTIONS["past_paper"],
+            config.COLLECTIONS["marked_script"],
             config.COLLECTIONS["instruction"],
         ]
         if doc_ids:
@@ -127,6 +131,12 @@ class ExamPractice:
             current_subject=current_subject,
         )
 
+    def _has_marked_scripts(self) -> bool:
+        try:
+            return self.pipeline.vs.collection_count(config.COLLECTIONS["marked_script"]) > 0
+        except Exception:
+            return False
+
     def mark_answer(
         self,
         question: str,
@@ -134,6 +144,12 @@ class ExamPractice:
         doc_ids: Optional[list[str]] = None,
         current_subject: str = "",
     ) -> Generator[str, None, None]:
+        has_scripts = self._has_marked_scripts()
+        script_note = (
+            "\n\nIMPORTANT: Marked exam scripts have been uploaded. Calibrate this feedback "
+            "to the marking standards, depth, and tone evidenced in those real-world scripts."
+            if has_scripts else ""
+        )
         query = (
             f"Mark and provide detailed feedback on this student's exam answer.\n\n"
             f"Question: {question}\n\n"
@@ -143,12 +159,34 @@ class ExamPractice:
             f"2. **What was missed** — issues/cases/statutes from course materials not addressed\n"
             f"3. **Structural feedback** — IRAC application, argument development\n"
             f"4. **Citation feedback** — NZ Law Style Guide compliance\n"
-            f"5. **Grade band** (A+/A/B+/B/C/D) with justification\n"
+            f"5. **Grade band** (A+/A/B+/B/C/D) with justification based on how this examiner has marked similar work\n"
             f"6. **Three priority improvements** for next time"
+            f"{script_note}"
         )
         chunks = self._get_exam_chunks(doc_ids)
+        prompt = EXAM_MARKING_AWARE_PROMPT if has_scripts else EXAM_PROMPT
         return self.pipeline.stream(
-            system_prompt=EXAM_PROMPT,
+            system_prompt=prompt,
+            user_query=query,
+            mode="exam",
+            chunks=chunks,
+            current_subject=current_subject,
+        )
+
+    def analyse_marked_script(
+        self,
+        doc_id: str,
+        current_subject: str = "",
+    ) -> Generator[str, None, None]:
+        chunks = self.pipeline.retrieve_full_document(
+            doc_id, config.COLLECTIONS["marked_script"]
+        )
+        query = (
+            "Analyse this marked exam script to extract the examiner's marking standards, "
+            "criteria, and grading philosophy. Follow the structured format in your instructions."
+        )
+        return self.pipeline.stream(
+            system_prompt=MARKED_SCRIPT_ANALYSIS_PROMPT,
             user_query=query,
             mode="exam",
             chunks=chunks,
