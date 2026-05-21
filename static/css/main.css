@@ -260,6 +260,41 @@ details.expander .body > *:first-child { margin-top: .8rem; }
 .quick-tool-label { font-weight: 600; color: var(--navy); font-size: .9rem; }
 .quick-tool-sub { color: var(--text-faint); font-size: .72rem; margin-top: .15rem; }
 
+/* ── Topic cards ─────────────────────────────────────────────────────────── */
+.topic-grid { display: flex; flex-direction: column; gap: .9rem; }
+.topic-card { background: #fff; border: 1.5px solid var(--border); border-radius: 12px; padding: 1.1rem 1.2rem; transition: border-color .18s ease; }
+.topic-card:hover { border-color: var(--navy); }
+.topic-card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: .7rem; }
+.topic-name { font-family: 'Crimson Pro', serif; font-size: 1.3rem; font-weight: 700; color: var(--navy); }
+.topic-desc { color: var(--text-muted); font-size: .87rem; margin-top: .15rem; }
+.topic-docs { display: flex; flex-wrap: wrap; gap: .35rem; min-height: 1.5rem; margin-bottom: .3rem; }
+.topic-doc-pill { display: inline-flex; align-items: center; gap: .3rem; background: var(--blue-bg); border: 1px solid var(--blue-border); color: #1E40AF; padding: .2rem .55rem; border-radius: 999px; font-size: .78rem; }
+.topic-doc-pill .remove-doc { background: none; border: none; color: #93C5FD; cursor: pointer; padding: 0 .1rem; font-size: .9rem; line-height: 1; }
+.topic-doc-pill .remove-doc:hover { color: var(--red); }
+.add-doc-row { display: flex; align-items: center; justify-content: space-between; gap: .6rem; padding: .35rem 0; border-bottom: 1px solid var(--border-light); }
+.add-doc-row:last-child { border-bottom: none; }
+.add-doc-title { font-size: .87rem; color: #0F172A; flex: 1; }
+
+/* ── Topic session page ──────────────────────────────────────────────────── */
+.session-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.session-header h1 { margin: 0; }
+.session-mode-toggle { display: flex; gap: .3rem; background: var(--bg); border: 1.5px solid var(--border); border-radius: 8px; padding: .2rem; }
+.mode-btn { display: inline-block; padding: .4rem .9rem; border-radius: 6px; font-size: .9rem; font-weight: 600; color: var(--text-muted); text-decoration: none; transition: all .15s ease; }
+.mode-btn:hover { color: var(--navy); }
+.mode-btn.active { background: var(--navy); color: #fff; }
+.session-doc-pills { display: flex; flex-wrap: wrap; gap: .3rem; margin-bottom: .8rem; }
+.session-doc-pill { background: var(--blue-bg); border: 1px solid var(--blue-border); color: #1E40AF; padding: .18rem .55rem; border-radius: 999px; font-size: .76rem; }
+.session-thread { background: #FAFBFD; border: 1px solid var(--border); border-radius: 12px; padding: 1rem; min-height: 260px; max-height: 600px; overflow-y: auto; display: flex; flex-direction: column; gap: .75rem; margin-bottom: .75rem; }
+.session-empty { color: var(--text-faint); font-size: .9rem; text-align: center; padding: 2rem; font-style: italic; }
+.session-msg { padding: .85rem 1.1rem; border-radius: 12px; max-width: 90%; line-height: 1.6; font-size: .94rem; }
+.session-msg h1,.session-msg h2,.session-msg h3 { margin: .5rem 0 .3rem; }
+.session-msg.user { background: var(--navy); color: #fff; align-self: flex-end; border-bottom-right-radius: 4px; }
+.session-msg.assistant { background: #fff; border: 1px solid var(--border); align-self: flex-start; border-bottom-left-radius: 4px; max-width: 95%; }
+.session-input-bar { background: #fff; border: 1.5px solid var(--border); border-radius: 12px; padding: .8rem; }
+.session-shortcuts { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .4rem; }
+.shortcut-btn { background: var(--bg); border: 1px solid var(--border); color: var(--text-muted); padding: .3rem .65rem; border-radius: 999px; font-size: .78rem; cursor: pointer; font-family: inherit; transition: all .15s ease; }
+.shortcut-btn:hover { background: var(--navy); color: #fff; border-color: var(--navy); }
+
 @media (max-width: 900px) {
     .app { grid-template-columns: 1fr; }
     .sidebar { position: relative; height: auto; }
@@ -267,4 +302,6 @@ details.expander .body > *:first-child { margin-top: .8rem; }
     .hero { padding: 1.5rem; }
     .row.cols-3, .row.cols-4 { grid-template-columns: 1fr; }
     .home-menu { max-width: 100%; }
+    .topic-card-header { flex-direction: column; }
+    .session-msg { max-width: 100%; }
 }

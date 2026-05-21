@@ -34,6 +34,7 @@
         <nav class="nav">
             <a href="{{ url_for('home') }}" class="{% if request.endpoint == 'home' %}active{% endif %}">🏠 Projects</a>
             <a href="{{ url_for('documents_page') }}" class="{% if request.endpoint == 'documents_page' %}active{% endif %}">📂 Documents</a>
+            <a href="{{ url_for('topics_page') }}" class="{% if request.endpoint in ('topics_page','topic_session_page') %}active{% endif %}">🗂️ Topics</a>
             <a href="{{ url_for('case_analysis_page') }}" class="{% if request.endpoint == 'case_analysis_page' %}active{% endif %}">⚖️ Case Analysis</a>
             <a href="{{ url_for('essay_page') }}" class="{% if request.endpoint == 'essay_page' %}active{% endif %}">✍️ Essay Assistant</a>
             <a href="{{ url_for('exam_page') }}" class="{% if request.endpoint == 'exam_page' %}active{% endif %}">📝 Exam Practice</a>

@@ -43,6 +43,25 @@ def _init_db() -> None:
                 UNIQUE(project_id, page),
                 FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS topics (
+                id          TEXT PRIMARY KEY,
+                project_id  TEXT,
+                name        TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                created_at  TEXT NOT NULL,
+                updated_at  TEXT NOT NULL,
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS topic_documents (
+                topic_id    TEXT NOT NULL,
+                doc_id      TEXT NOT NULL,
+                collection  TEXT NOT NULL,
+                title       TEXT NOT NULL,
+                PRIMARY KEY (topic_id, doc_id),
+                FOREIGN KEY (topic_id) REFERENCES topics(id) ON DELETE CASCADE
+            );
         """)
 
 
@@ -143,3 +162,83 @@ def get_project_pages(project_id: str) -> list[str]:
             "SELECT page FROM conversations WHERE project_id=?", (project_id,)
         ).fetchall()
     return [r["page"] for r in rows]
+
+
+# ── Topics ────────────────────────────────────────────────────────────────────
+
+def create_topic(project_id: Optional[str], name: str, description: str = "") -> str:
+    topic_id = uuid.uuid4().hex
+    now = _now()
+    with _conn() as con:
+        con.execute(
+            "INSERT INTO topics (id, project_id, name, description, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (topic_id, project_id or None, name.strip(), description.strip(), now, now),
+        )
+    return topic_id
+
+
+def list_topics(project_id: Optional[str] = None) -> list[dict]:
+    with _conn() as con:
+        if project_id:
+            rows = con.execute(
+                "SELECT t.*, (SELECT COUNT(*) FROM topic_documents td WHERE td.topic_id=t.id) AS doc_count "
+                "FROM topics t WHERE t.project_id=? ORDER BY t.updated_at DESC",
+                (project_id,),
+            ).fetchall()
+        else:
+            rows = con.execute(
+                "SELECT t.*, (SELECT COUNT(*) FROM topic_documents td WHERE td.topic_id=t.id) AS doc_count "
+                "FROM topics t ORDER BY t.updated_at DESC",
+            ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_topic(topic_id: str) -> Optional[dict]:
+    with _conn() as con:
+        row = con.execute("SELECT * FROM topics WHERE id=?", (topic_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def update_topic(topic_id: str, name: Optional[str] = None, description: Optional[str] = None) -> None:
+    now = _now()
+    with _conn() as con:
+        if name is not None:
+            con.execute("UPDATE topics SET name=?, updated_at=? WHERE id=?", (name.strip(), now, topic_id))
+        if description is not None:
+            con.execute("UPDATE topics SET description=?, updated_at=? WHERE id=?", (description, now, topic_id))
+
+
+def delete_topic(topic_id: str) -> None:
+    with _conn() as con:
+        con.execute("DELETE FROM topics WHERE id=?", (topic_id,))
+
+
+def touch_topic(topic_id: str) -> None:
+    with _conn() as con:
+        con.execute("UPDATE topics SET updated_at=? WHERE id=?", (_now(), topic_id))
+
+
+# ── Topic documents ───────────────────────────────────────────────────────────
+
+def add_doc_to_topic(topic_id: str, doc_id: str, collection: str, title: str) -> None:
+    with _conn() as con:
+        con.execute(
+            "INSERT OR IGNORE INTO topic_documents (topic_id, doc_id, collection, title) VALUES (?,?,?,?)",
+            (topic_id, doc_id, collection, title),
+        )
+    touch_topic(topic_id)
+
+
+def remove_doc_from_topic(topic_id: str, doc_id: str) -> None:
+    with _conn() as con:
+        con.execute("DELETE FROM topic_documents WHERE topic_id=? AND doc_id=?", (topic_id, doc_id))
+    touch_topic(topic_id)
+
+
+def get_topic_docs(topic_id: str) -> list[dict]:
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT * FROM topic_documents WHERE topic_id=?", (topic_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]

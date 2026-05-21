@@ -30,6 +30,7 @@ from src.exam_practice import ExamPractice
 from src.notes_generator import NotesGenerator
 from src.prompts import PAST_PAPER_ANALYSIS_PROMPT
 from src.rag_pipeline import RAGPipeline
+from src.topic_tutor import TopicTutor
 from src.vector_store import LegalVectorStore
 
 app = Flask(__name__)
@@ -44,11 +45,12 @@ _CASE: CaseAnalyzer | None = None
 _ESSAY: EssayAssistant | None = None
 _EXAM: ExamPractice | None = None
 _NOTES: NotesGenerator | None = None
+_TUTOR: TopicTutor | None = None
 
 
 def services():
     """Lazy-initialise the heavy services on first request."""
-    global _VS, _CLAUDE, _PIPELINE, _CASE, _ESSAY, _EXAM, _NOTES
+    global _VS, _CLAUDE, _PIPELINE, _CASE, _ESSAY, _EXAM, _NOTES, _TUTOR
     if _VS is None:
         _VS = LegalVectorStore()
         _CLAUDE = ClaudeClient()
@@ -57,7 +59,8 @@ def services():
         _ESSAY = EssayAssistant(_PIPELINE)
         _EXAM = ExamPractice(_PIPELINE)
         _NOTES = NotesGenerator(_PIPELINE)
-    return _VS, _CASE, _ESSAY, _EXAM, _NOTES
+        _TUTOR = TopicTutor(_PIPELINE)
+    return _VS, _CASE, _ESSAY, _EXAM, _NOTES, _TUTOR
 
 
 def current_project() -> dict | None:
@@ -387,7 +390,7 @@ def api_essay(action: str):
 # ── Exam Practice ────────────────────────────────────────────────────────────
 @app.post("/api/exam/<action>")
 def api_exam(action: str):
-    _, _, _, exam, _ = services()
+    _, _, _, exam, *_ = services()
     payload = request.get_json(silent=True) or {}
     subject = (current_project() or {}).get("subject", "")
     doc_ids = payload.get("doc_ids") or None
@@ -442,7 +445,7 @@ def api_exam(action: str):
 # ── Notes ────────────────────────────────────────────────────────────────────
 @app.post("/api/notes/<action>")
 def api_notes(action: str):
-    _, _, _, _, notes = services()
+    _, _, _, _, notes, *_ = services()
     payload = request.get_json(silent=True) or {}
     subject = (current_project() or {}).get("subject", "")
     doc_ids = payload.get("doc_ids") or None
@@ -464,6 +467,134 @@ def api_notes(action: str):
             topic=payload["topic"], doc_ids=doc_ids, current_subject=subject,
         ))
     abort(404)
+
+
+# ── Topics ───────────────────────────────────────────────────────────────────
+@app.route("/topics")
+def topics_page():
+    vs, *_ = services()
+    proj = current_project()
+    pid = (proj or {}).get("id")
+    topics = sm.list_topics(project_id=pid)
+    all_docs = vs.list_documents()
+    # Attach doc lists to each topic
+    for t in topics:
+        t["docs"] = sm.get_topic_docs(t["id"])
+    return render_template(
+        "topics.html",
+        topics=topics,
+        all_docs=all_docs,
+        **common_context(),
+    )
+
+
+@app.route("/topics/<topic_id>/session")
+def topic_session_page(topic_id: str):
+    topic = sm.get_topic(topic_id)
+    if not topic:
+        abort(404)
+    topic_docs = sm.get_topic_docs(topic_id)
+    mode = request.args.get("mode", "learn")
+    # Load saved session history for this topic+mode
+    saved_key = f"topic_{topic_id}_{mode}"
+    saved = (sm.load_conversation(session["project_id"], saved_key)
+             if session.get("project_id") else {})
+    return render_template(
+        "topic_session.html",
+        topic=topic,
+        topic_docs=topic_docs,
+        mode=mode,
+        saved=saved,
+        saved_key=saved_key,
+        **common_context(),
+    )
+
+
+# Topic CRUD
+@app.post("/api/topics")
+def api_create_topic():
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify(error="Name required"), 400
+    proj = current_project()
+    pid = (proj or {}).get("id")
+    topic_id = sm.create_topic(
+        project_id=pid,
+        name=name,
+        description=(data.get("description") or "").strip(),
+    )
+    return jsonify(topic_id=topic_id)
+
+
+@app.post("/api/topics/<tid>/update")
+def api_update_topic(tid: str):
+    data = request.get_json(silent=True) or {}
+    sm.update_topic(tid, name=data.get("name"), description=data.get("description"))
+    return jsonify(ok=True)
+
+
+@app.post("/api/topics/<tid>/delete")
+def api_delete_topic(tid: str):
+    sm.delete_topic(tid)
+    return jsonify(ok=True)
+
+
+# Topic document management
+@app.post("/api/topics/<tid>/docs/add")
+def api_topic_add_doc(tid: str):
+    data = request.get_json(silent=True) or {}
+    sm.add_doc_to_topic(tid, data["doc_id"], data["collection"], data["title"])
+    return jsonify(ok=True)
+
+
+@app.post("/api/topics/<tid>/docs/remove")
+def api_topic_remove_doc(tid: str):
+    data = request.get_json(silent=True) or {}
+    sm.remove_doc_from_topic(tid, data["doc_id"])
+    return jsonify(ok=True)
+
+
+# Topic sessions (streaming)
+@app.post("/api/topics/<tid>/learn")
+def api_topic_learn(tid: str):
+    *_, tutor = services()
+    topic = sm.get_topic(tid)
+    if not topic:
+        abort(404)
+    payload = request.get_json(silent=True) or {}
+    doc_ids = [d["doc_id"] for d in sm.get_topic_docs(tid)]
+    subject = (current_project() or {}).get("subject", "")
+    if payload.get("start"):
+        return stream_response(tutor.start_learn(
+            topic_name=topic["name"], doc_ids=doc_ids, current_subject=subject,
+        ))
+    return stream_response(tutor.learn_chat(
+        message=payload.get("message", ""),
+        history=payload.get("history") or [],
+        topic_name=topic["name"], doc_ids=doc_ids, current_subject=subject,
+    ))
+
+
+@app.post("/api/topics/<tid>/practice")
+def api_topic_practice(tid: str):
+    *_, tutor = services()
+    topic = sm.get_topic(tid)
+    if not topic:
+        abort(404)
+    payload = request.get_json(silent=True) or {}
+    doc_ids = [d["doc_id"] for d in sm.get_topic_docs(tid)]
+    subject = (current_project() or {}).get("subject", "")
+    if payload.get("start"):
+        return stream_response(tutor.start_practice(
+            topic_name=topic["name"], doc_ids=doc_ids,
+            preferences=payload.get("preferences", ""), current_subject=subject,
+        ))
+    return stream_response(tutor.practice_chat(
+        message=payload.get("message", ""),
+        history=payload.get("history") or [],
+        topic_name=topic["name"], doc_ids=doc_ids, current_subject=subject,
+    ))
 
 
 # ── Entrypoint ───────────────────────────────────────────────────────────────

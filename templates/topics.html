@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Topics · NZ Law Assistant{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="icon">🗂️</div>
+    <div>
+        <h1>Topics</h1>
+        <p class="subtitle">Curate reading lists per topic, then Learn or Practice from them</p>
+    </div>
+</div>
+
+<!-- Create topic -->
+<div class="card" style="margin-bottom:1.25rem;">
+    <h3 style="margin-bottom:.6rem;">Create a new topic</h3>
+    <div class="row cols-2" style="align-items:end;">
+        <div class="form-group" style="margin:0;">
+            <label for="t-name">Topic name</label>
+            <input id="t-name" type="text" placeholder="e.g. Negligence | Contract Formation | Mens Rea" />
+        </div>
+        <div class="form-group" style="margin:0;">
+            <label for="t-desc">Description <span class="tiny">(optional)</span></label>
+            <input id="t-desc" type="text" placeholder="e.g. Week 4–6 lecture material" />
+        </div>
+    </div>
+    <button id="btn-create-topic" class="btn btn-primary" style="margin-top:.7rem;">+ Create topic</button>
+</div>
+
+{% if not topics %}
+    <div class="empty">
+        <div class="icon">🗂️</div>
+        <div class="msg">No topics yet</div>
+        <div class="sub">Create a topic above, then add documents to it — then Learn or Practice.</div>
+    </div>
+{% else %}
+    <div class="topic-grid" id="topic-grid">
+        {% for t in topics %}
+        <div class="topic-card" id="topic-{{ t.id }}">
+            <div class="topic-card-header">
+                <div>
+                    <div class="topic-name">{{ t.name }}</div>
+                    {% if t.description %}<div class="topic-desc">{{ t.description }}</div>{% endif %}
+                    <div class="tiny" style="margin-top:.3rem; color:var(--text-faint);">{{ t.doc_count }} document{{ 's' if t.doc_count != 1 else '' }}</div>
+                </div>
+                <div class="flex" style="gap:.35rem; align-items:flex-start;">
+                    <a href="{{ url_for('topic_session_page', topic_id=t.id, mode='learn') }}"
+                       class="btn btn-gold btn-sm">📖 Learn</a>
+                    <a href="{{ url_for('topic_session_page', topic_id=t.id, mode='practice') }}"
+                       class="btn btn-primary btn-sm">📝 Practice</a>
+                    <button class="btn btn-danger btn-sm" data-delete-topic="{{ t.id }}" title="Delete">🗑</button>
+                </div>
+            </div>
+
+            <!-- Assigned documents -->
+            <div class="topic-docs" id="docs-{{ t.id }}">
+                {% if t.docs %}
+                    {% for d in t.docs %}
+                    <div class="topic-doc-pill" data-doc-id="{{ d.doc_id }}" data-topic="{{ t.id }}">
+                        <span>{{ d.title }}</span>
+                        <button class="remove-doc" title="Remove">×</button>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <span class="tiny" style="color:var(--text-faint);">No documents assigned yet — add some below.</span>
+                {% endif %}
+            </div>
+
+            <!-- Add documents -->
+            <details class="expander" style="margin-top:.65rem;">
+                <summary style="font-size:.82rem; color:var(--text-muted);">+ Add documents to this topic</summary>
+                <div class="body" style="padding:.6rem 0 0;">
+                    {% if all_docs %}
+                        {% set assigned_ids = t.docs | map(attribute='doc_id') | list %}
+                        {% for d in all_docs %}
+                            {% if d.doc_id not in assigned_ids %}
+                            <div class="add-doc-row">
+                                <span class="add-doc-title">{{ d.title }}
+                                    <span class="tiny">({{ doc_type_labels.get(d.doc_type, d.doc_type) }})</span>
+                                </span>
+                                <button class="btn btn-secondary btn-sm add-doc-btn"
+                                        data-topic="{{ t.id }}"
+                                        data-doc-id="{{ d.doc_id }}"
+                                        data-collection="{{ d.collection }}"
+                                        data-title="{{ d.title }}">+ Add</button>
+                            </div>
+                            {% endif %}
+                        {% endfor %}
+                        {% if all_docs | selectattr('doc_id', 'in', assigned_ids) | list | length == all_docs | length %}
+                            <span class="tiny" style="color:var(--text-faint);">All documents are already assigned to this topic.</span>
+                        {% endif %}
+                    {% else %}
+                        <span class="tiny">No documents uploaded yet. <a href="{{ url_for('documents_page') }}">Upload some →</a></span>
+                    {% endif %}
+                </div>
+            </details>
+        </div>
+        {% endfor %}
+    </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById("btn-create-topic").addEventListener("click", async () => {
+    const name = document.getElementById("t-name").value.trim();
+    if (!name) { toast("Enter a topic name", "error"); return; }
+    const res = await fetch("/api/topics", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ name, description: document.getElementById("t-desc").value }),
+    });
+    const j = await res.json();
+    if (j.topic_id) { toast("Topic created", "success"); window.location.reload(); }
+});
+
+document.querySelectorAll("[data-delete-topic]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+        if (!confirm("Delete this topic? The documents themselves won't be affected.")) return;
+        await fetch(`/api/topics/${btn.dataset.deleteTopic}/delete`, { method: "POST" });
+        document.getElementById(`topic-${btn.dataset.deleteTopic}`).remove();
+        toast("Topic deleted", "success");
+    });
+});
+
+document.querySelectorAll(".add-doc-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+        await fetch(`/api/topics/${btn.dataset.topic}/docs/add`, {
+            method: "POST", headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({ doc_id: btn.dataset.docId, collection: btn.dataset.collection, title: btn.dataset.title }),
+        });
+        toast(`Added "${btn.dataset.title}"`, "success");
+        // Add pill immediately
+        const container = document.getElementById(`docs-${btn.dataset.topic}`);
+        const empty = container.querySelector(".tiny");
+        if (empty) empty.remove();
+        const pill = document.createElement("div");
+        pill.className = "topic-doc-pill";
+        pill.dataset.docId = btn.dataset.docId;
+        pill.dataset.topic = btn.dataset.topic;
+        pill.innerHTML = `<span>${btn.dataset.title}</span><button class="remove-doc" title="Remove">×</button>`;
+        container.appendChild(pill);
+        pill.querySelector(".remove-doc").addEventListener("click", removeDocHandler);
+        btn.closest(".add-doc-row").remove();
+    });
+});
+
+async function removeDocHandler(e) {
+    const pill = e.target.closest(".topic-doc-pill");
+    const { docId, topic } = pill.dataset;
+    await fetch(`/api/topics/${topic}/docs/remove`, {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ doc_id: docId }),
+    });
+    pill.remove();
+    toast("Removed", "success");
+}
+document.querySelectorAll(".remove-doc").forEach(btn => btn.addEventListener("click", removeDocHandler));
+</script>
+{% endblock %}

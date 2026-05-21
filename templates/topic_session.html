@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+{% block title %}{{ topic.name }} · {% if mode == 'learn' %}Learn{% else %}Practice{% endif %} · NZ Law Assistant{% endblock %}
+
+{% block content %}
+
+<!-- Header -->
+<div class="session-header">
+    <div class="session-header-left">
+        <a href="{{ url_for('topics_page') }}" class="btn btn-ghost btn-sm" style="margin-bottom:.5rem;">← Topics</a>
+        <h1>{{ topic.name }}</h1>
+        {% if topic.description %}<p class="subtitle" style="color:var(--text-muted);">{{ topic.description }}</p>{% endif %}
+    </div>
+    <div class="session-mode-toggle">
+        <a href="{{ url_for('topic_session_page', topic_id=topic.id, mode='learn') }}"
+           class="mode-btn {% if mode == 'learn' %}active{% endif %}">📖 Learn</a>
+        <a href="{{ url_for('topic_session_page', topic_id=topic.id, mode='practice') }}"
+           class="mode-btn {% if mode == 'practice' %}active{% endif %}">📝 Practice</a>
+    </div>
+</div>
+
+{% if not topic_docs %}
+    <div class="empty">
+        <div class="icon">📭</div>
+        <div class="msg">No documents in this topic</div>
+        <div class="sub">Go to <a href="{{ url_for('topics_page') }}">Topics</a> and add some documents first.</div>
+    </div>
+{% else %}
+
+<!-- Doc pills -->
+<div class="session-doc-pills">
+    {% for d in topic_docs %}
+        <span class="session-doc-pill">{{ d.title }}</span>
+    {% endfor %}
+</div>
+
+<!-- Mode description -->
+{% if mode == 'learn' %}
+<div class="tip-box">
+    📖 <strong>Learn mode</strong> — the AI will teach you this topic using only the assigned documents.
+    It starts automatically. Type <em>next</em> to move forward, or ask any question at any point.
+</div>
+{% else %}
+<div class="tip-box">
+    📝 <strong>Practice mode</strong> — the AI will generate exam questions from the assigned materials and give IRAC feedback on your answers. It starts automatically.
+</div>
+{% if mode == 'practice' %}
+<div id="practice-prefs-panel" class="card" style="margin-bottom:.8rem; {% if saved.history %}display:none;{% endif %}">
+    <label for="practice-prefs" style="margin-bottom:.4rem;">What would you like to practise? <span class="tiny">(optional — leave blank to let the AI choose)</span></label>
+    <input id="practice-prefs" type="text"
+           placeholder="e.g. Focus on problem questions | Mix of essay and problems | Only negligence duty of care" />
+    <div class="flex-end" style="margin-top:.5rem; gap:.5rem;">
+        <button id="btn-start-pref" class="btn btn-primary">Start practice session →</button>
+        <button id="btn-skip-pref" class="btn btn-ghost btn-sm">Skip — just start</button>
+    </div>
+</div>
+{% endif %}
+{% endif %}
+
+<!-- Chat thread -->
+<div id="session-thread" class="session-thread"></div>
+
+<!-- Input bar -->
+<div class="session-input-bar" id="input-bar">
+    {% if mode == 'learn' %}
+    <div class="session-shortcuts">
+        <button class="shortcut-btn" data-msg="next">Next concept →</button>
+        <button class="shortcut-btn" data-msg="I understand, please continue">I understand</button>
+        <button class="shortcut-btn" data-msg="explain more">Explain more</button>
+        <button class="shortcut-btn" data-msg="give me a case example from the materials">Case example</button>
+    </div>
+    {% else %}
+    <div class="session-shortcuts">
+        <button class="shortcut-btn" data-msg="next question">Next question →</button>
+        <button class="shortcut-btn" data-msg="give me a hint">Hint</button>
+        <button class="shortcut-btn" data-msg="show me the model answer">Model answer</button>
+        <button class="shortcut-btn" data-msg="make it harder">Make it harder</button>
+    </div>
+    {% endif %}
+    <div class="chat-input-row" style="margin-top:.4rem;">
+        <textarea id="session-input"
+                  placeholder="{% if mode == 'learn' %}Ask a question or type 'next' to move forward...{% else %}Type your answer here...{% endif %}"
+                  rows="3"></textarea>
+        <button id="session-send" class="btn btn-primary">Send</button>
+    </div>
+</div>
+
+<div class="flex" style="gap:.5rem; margin-top:.5rem;">
+    <button id="clear-session" class="btn btn-ghost btn-sm">Clear session</button>
+</div>
+
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TOPIC_ID = {{ topic.id | tojson }};
+const TOPIC_NAME = {{ topic.name | tojson }};
+const MODE = {{ mode | tojson }};
+const SAVED_KEY = {{ saved_key | tojson }};
+const SAVED = {{ saved | tojson }};
+const PROJECT_ID = {{ (project.id if project else None) | tojson }};
+
+let history = SAVED.history || [];
+let sessionStarted = !!(SAVED.history && SAVED.history.length > 0);
+
+const thread = document.getElementById("session-thread");
+const inputEl = document.getElementById("session-input");
+const sendBtn = document.getElementById("session-send");
+const API_URL = MODE === "learn" ? `/api/topics/${TOPIC_ID}/learn` : `/api/topics/${TOPIC_ID}/practice`;
+
+// ── Render history ────────────────────────────────────────────────────────────
+function renderHistory() {
+    thread.innerHTML = "";
+    if (history.length === 0) {
+        thread.innerHTML = '<div class="session-empty">Starting session…</div>';
+        return;
+    }
+    history.forEach(m => appendMessage(m.role, m.content, false));
+    thread.scrollTop = thread.scrollHeight;
+}
+
+function appendMessage(role, content, scroll = true) {
+    const existing = thread.querySelector(".session-empty");
+    if (existing) existing.remove();
+    const el = document.createElement("div");
+    el.className = `session-msg ${role}`;
+    // Light markdown for assistant messages
+    if (role === "assistant") {
+        el.innerHTML = simpleMarkdown(content);
+    } else {
+        el.textContent = content;
+    }
+    thread.appendChild(el);
+    if (scroll) thread.scrollTop = thread.scrollHeight;
+    return el;
+}
+
+function simpleMarkdown(text) {
+    const escaped = text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    return escaped
+        .replace(/^### (.+)$/gm, "<h3>$1</h3>")
+        .replace(/^## (.+)$/gm, "<h2>$1</h2>")
+        .replace(/^# (.+)$/gm, "<h1>$1</h1>")
+        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+        .replace(/\*([^*\n]+)\*/g, "<em>$1</em>")
+        .replace(/`([^`]+)`/g, "<code>$1</code>")
+        .replace(/\n/g, "<br/>");
+}
+
+function saveSession() {
+    saveConversation(SAVED_KEY, { history });
+}
+
+// ── Send a message ────────────────────────────────────────────────────────────
+async function sendMessage(msg) {
+    if (!msg.trim()) return;
+    history.push({ role: "user", content: msg });
+    appendMessage("user", msg);
+    inputEl.value = "";
+    sendBtn.disabled = true;
+    sendBtn.innerHTML = '<span class="spinner"></span>';
+
+    const assistantEl = appendMessage("assistant", "");
+    assistantEl.innerHTML = '<span class="spinner dark"></span>';
+
+    const body = {
+        message: msg,
+        history: history.slice(0, -1),
+    };
+
+    try {
+        const full = await streamPost(API_URL, body,
+            (_chunk, total) => {
+                assistantEl.innerHTML = simpleMarkdown(total) + '<span class="cursor"></span>';
+                thread.scrollTop = thread.scrollHeight;
+            }
+        );
+        assistantEl.innerHTML = simpleMarkdown(full);
+        history.push({ role: "assistant", content: full });
+        saveSession();
+    } catch (e) {
+        assistantEl.innerHTML = `<span style="color:var(--red);">Error: ${e.message}</span>`;
+    } finally {
+        sendBtn.disabled = false;
+        sendBtn.innerHTML = "Send";
+        thread.scrollTop = thread.scrollHeight;
+    }
+}
+
+// ── Auto-start (no history) ───────────────────────────────────────────────────
+async function autoStart(preferences) {
+    thread.innerHTML = '<div class="session-empty">Starting session…</div>';
+    sendBtn.disabled = true;
+    sendBtn.innerHTML = '<span class="spinner"></span>';
+
+    const assistantEl = appendMessage("assistant", "");
+    assistantEl.innerHTML = '<span class="spinner dark"></span>';
+    // Remove "starting" placeholder
+    const placeholder = thread.querySelector(".session-empty");
+    if (placeholder) placeholder.remove();
+
+    const body = { start: true };
+    if (preferences) body.preferences = preferences;
+
+    try {
+        const full = await streamPost(API_URL, body,
+            (_chunk, total) => {
+                assistantEl.innerHTML = simpleMarkdown(total) + '<span class="cursor"></span>';
+                thread.scrollTop = thread.scrollHeight;
+            }
+        );
+        assistantEl.innerHTML = simpleMarkdown(full);
+        history.push({ role: "assistant", content: full });
+        saveSession();
+    } catch (e) {
+        assistantEl.innerHTML = `<span style="color:var(--red);">Error: ${e.message}</span>`;
+    } finally {
+        sendBtn.disabled = false;
+        sendBtn.innerHTML = "Send";
+    }
+}
+
+// ── Event listeners ───────────────────────────────────────────────────────────
+sendBtn.addEventListener("click", () => sendMessage(inputEl.value));
+inputEl.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(inputEl.value); }
+});
+document.querySelectorAll(".shortcut-btn").forEach(btn => {
+    btn.addEventListener("click", () => sendMessage(btn.dataset.msg));
+});
+
+document.getElementById("clear-session").addEventListener("click", () => {
+    if (!confirm("Clear this session? All conversation history will be lost.")) return;
+    history = [];
+    sessionStarted = false;
+    thread.innerHTML = "";
+    saveSession();
+    // Restart
+    if (MODE === "practice") {
+        const prefsPanel = document.getElementById("practice-prefs-panel");
+        if (prefsPanel) prefsPanel.style.display = "";
+    } else {
+        autoStart();
+    }
+});
+
+// Practice prefs panel
+const startPrefBtn = document.getElementById("btn-start-pref");
+const skipPrefBtn = document.getElementById("btn-skip-pref");
+if (startPrefBtn) {
+    startPrefBtn.addEventListener("click", () => {
+        document.getElementById("practice-prefs-panel").style.display = "none";
+        autoStart(document.getElementById("practice-prefs").value);
+    });
+}
+if (skipPrefBtn) {
+    skipPrefBtn.addEventListener("click", () => {
+        document.getElementById("practice-prefs-panel").style.display = "none";
+        autoStart();
+    });
+}
+
+// ── Init on load ──────────────────────────────────────────────────────────────
+if (history.length > 0) {
+    // Restore saved session
+    renderHistory();
+} else if (MODE === "learn") {
+    // Learn starts automatically
+    autoStart();
+} else if (MODE === "practice") {
+    // Practice shows prefs panel first (already visible by default)
+    thread.innerHTML = '<div class="session-empty">Choose your preferences above, or click <em>Skip</em> to start straight away.</div>';
+}
+</script>
+{% endblock %}
